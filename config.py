@@ -161,6 +161,12 @@ class Config:
     retry_base_delay: float = 1.0
     retry_max_delay: float = 30.0
 
+    # HTTP API for the mobile / desktop apps (api/)
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
+    api_token: str = field(default="", repr=False)
+    api_cors_origins: List[str] = field(default_factory=list)
+
     @property
     def quote_currency(self) -> str:
         return self.symbols[0].split("/")[1].split(":")[0] if self.symbols else "USDT"
@@ -171,7 +177,7 @@ class Config:
 
     def secrets(self) -> List[str]:
         """Values that must never appear in logs."""
-        return [s for s in (self.api_key, self.api_secret, self.api_password) if s]
+        return [s for s in (self.api_key, self.api_secret, self.api_password, self.api_token) if s]
 
     def validate(self) -> List[str]:
         """Return a list of problems. Empty list means the config is usable."""
@@ -231,4 +237,8 @@ def load_config(env_file: Optional[str] = ".env") -> Config:
         max_retries=_env_int("MAX_RETRIES", 5),
         retry_base_delay=_env_float("RETRY_BASE_DELAY", 1.0),
         retry_max_delay=_env_float("RETRY_MAX_DELAY", 30.0),
+        api_host=_env_str("API_HOST", "127.0.0.1"),
+        api_port=_env_int("API_PORT", 8000),
+        api_token=_env_str("API_TOKEN"),
+        api_cors_origins=[o.strip() for o in _env_str("API_CORS_ORIGINS").split(",") if o.strip()],
     )

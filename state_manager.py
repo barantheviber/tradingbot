@@ -368,8 +368,14 @@ class StateManager:
         except sqlite3.Error:  # logging must never crash the bot
             pass
 
-    def get_events(self, limit: int = 200) -> List[Dict[str, Any]]:
-        return self._query("SELECT * FROM event_log ORDER BY id DESC LIMIT ?", (limit,))
+    def get_events(self, limit: int = 200, after_id: int = 0,
+                   category: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Newest first. ``after_id`` returns only events newer than that id."""
+        sql, params = "SELECT * FROM event_log WHERE id > ?", [after_id]
+        if category:
+            sql += " AND category = ?"
+            params.append(category)
+        return self._query(sql + " ORDER BY id DESC LIMIT ?", tuple(params + [limit]))
 
     def prune_events(self, keep: int = 20000) -> None:
         self._execute("DELETE FROM event_log WHERE id <= (SELECT MAX(id) FROM event_log) - ?", (keep,))
@@ -385,6 +391,12 @@ class StateManager:
         for r in rows:
             r["payload"] = json.loads(r["payload"] or "{}")
         return rows
+
+    def get_command(self, command_id: int) -> Optional[Dict[str, Any]]:
+        row = self._query_one("SELECT * FROM commands WHERE id = ?", (command_id,))
+        if row is not None:
+            row["payload"] = json.loads(row["payload"] or "{}")
+        return row
 
     def complete_command(self, command_id: int, status: str = "done", note: str = "") -> None:
         self._execute("UPDATE commands SET status = ?, processed_at = ?, note = ? WHERE id = ?",

@@ -23,6 +23,8 @@ execution/
   live.py            LiveExecutionClient: gerçek emirler, hassasiyet/min. limit kontrolü, mutabakat
 bot_engine.py        Ana döngü: sadece kapanmış mumlar, 1 sn'lik uykularla düzgün kapanma
 dashboard/app.py     Streamlit + Plotly paneli
+api/                 Mobil / masaüstü uygulamalar için HTTP + WebSocket API (FastAPI)
+mobile/              Expo (React Native, TypeScript) mobil uygulama
 main.py              Giriş noktası
 backtest.py          Geçmiş veride hızlı sağlama
 tests/               Birim testleri (risk, boyutlandırma, state, strateji, retry, engine)
@@ -130,6 +132,42 @@ hem SL hem TP'ye değilirse (muhafazakâr olarak) önce SL varsayılır.
 Dashboard hiçbir zaman kendisi emir göndermez ve API anahtarı kullanmaz: **Kapat** butonu SQLite'taki
 komut kuyruğuna bir kayıt ekler, çalışan bot bunu ~1 saniye içinde işler. Bu nedenle manuel kapatma için
 botun çalışıyor olması gerekir.
+
+## Mobil uygulama ve API
+
+Telefon botun SQLite dosyasını okuyamadığı için bot ile uygulama arasında küçük bir API var.
+API botla aynı veritabanını okur; **hiçbir zaman kendisi emir göndermez**, API anahtarlarını
+döndürmez ve paper/live modunu değiştiremez. "Kapat" isteği dashboard'daki gibi komut kuyruğuna
+yazılır ve çalışan bot tarafından işlenir.
+
+```bash
+python -m api --generate-token     # çıkan değeri .env içinde API_TOKEN= satırına yazın
+python -m api                      # bot (python main.py) ile birlikte ayrı bir terminalde
+```
+
+Varsayılan olarak yalnızca `127.0.0.1:8000` dinlenir. Telefondan bağlanmak için:
+
+- **Önerilen:** bilgisayara ve telefona [Tailscale](https://tailscale.com) (veya WireGuard) kurun,
+  `.env` içinde `API_HOST=0.0.0.0` yapın ve uygulamada `http://<tailscale-ip>:8000` adresini kullanın.
+- Aynı Wi-Fi ağında: `API_HOST=0.0.0.0` ve bilgisayarın yerel IP'si (ör. `http://192.168.1.20:8000`).
+
+Trafik şifresiz HTTP'dir: API'yi modem üzerinden internete açmayın. Tüm istekler
+`Authorization: Bearer <API_TOKEN>` ister; token uygulamada telefonun güvenli deposunda tutulur.
+
+| Uç nokta | Açıklama |
+|---|---|
+| `GET /api/status` | Mod, borsa, semboller, bot çalışıyor mu, bugünkü PnL, günlük limit durumu |
+| `GET /api/positions` | Açık pozisyonlar (giriş, miktar, SL, TP, trailing stop, gerçekleşmemiş PnL) |
+| `POST /api/positions/{id}/close` | Kapatma komutunu kuyruğa ekler (202) |
+| `GET /api/commands/{id}` | Kuyruktaki komutun durumu (pending / done / failed) |
+| `GET /api/trades?limit=` | Kapanmış işlemler |
+| `GET /api/pnl` | Performans özeti |
+| `GET /api/candles?symbol=&timeframe=&limit=` | Grafik için OHLCV (yalnızca SYMBOLS içindeki semboller) |
+| `GET /api/settings`, `PUT /api/settings/{key}` | Canlı strateji/risk ayarları; `{"value": ...}`, aralık kontrollü |
+| `GET /api/logs?limit=&after_id=&category=` | Karar/olay logu (yeniden eskiye) |
+| `WS /api/ws?token=` | `status`, `positions`, `logs` mesajlarını değiştikçe iter |
+
+Mobil uygulamanın kurulumu için: [mobile/README.md](mobile/README.md).
 
 ## Canlıya geçiş (bilinçli adım)
 
