@@ -29,6 +29,9 @@ Telefona **Expo Go** uygulamasını kurup terminaldeki QR kodu okutun. İlk aç�
 sunucu adresini ve `API_TOKEN` değerini sorar (bkz. ana README, "Mobil uygulama ve API").
 Token telefonun güvenli deposunda (Keychain / Keystore) saklanır.
 
+Gerçek bot olmadan denemek için depo kökünde `python -m api.demo --host 0.0.0.0` çalıştırın ve
+uygulamada `http://<bilgisayarın-ip'si>:8765` adresini, `demo-token-0123456789` token'ını girin.
+
 ## Kontroller
 
 ```bash

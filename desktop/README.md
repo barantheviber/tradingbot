@@ -1,11 +1,12 @@
 # Trading Bot Desktop
 
 Botu bilgisayardan izlemek için Electron + React + TypeScript uygulaması. Botun HTTP API'sine
-bağlanır (API `api/` klasöründe ayrı geliştiriliyor). Uygulama **emir açmaz ve paper/canlı modu
+bağlanır (`api/`, bkz. ana README). Uygulama **emir açmaz ve paper/canlı modu
 değiştiremez**. Yapabildiği yalnızca iki yazma işlemi var:
 
 - Bir pozisyon için kapatma komutunu botun komut kuyruğuna eklemek (`POST /api/positions/{id}/close`).
-  Emri bot kendi döngüsünde gönderir.
+  Emri bot kendi döngüsünde gönderir; uygulama `GET /api/commands/{id}` ile komutun işlenip
+  işlenmediğini takip edip sonucu gösterir.
 - Strateji/risk ayarlarını güncellemek (`PUT /api/settings/{key}`). Adında `mode`, `paper`, `live`,
   `api_key` veya `secret` geçen anahtarları uygulama reddeder.
 
@@ -27,17 +28,18 @@ cd desktop
 npm install
 ```
 
-## Geliştirme (mock API ile)
+## Geliştirme (örnek verili API ile)
 
-Gerçek bot olmadan çalışmak için sahte bir API sunucusu var:
+Gerçek bot olmadan çalışmak için gerçek API'yi örnek verilerle açın (Python bağımlılıkları kurulu
+olmalı, bkz. ana README):
 
 ```bash
-npm run mock      # http://127.0.0.1:8765, token: dev-token
+npm run demo-api  # = cd .. && python -m api.demo  ->  http://127.0.0.1:8765, token: demo-token-0123456789
 npm run dev       # ayrı bir terminalde: Vite + Electron
 ```
 
-Uygulamada **Bağlantı** sekmesine adres olarak `http://127.0.0.1:8765`, token olarak `dev-token`
-girin. İlk açılışta `TRADINGBOT_API_URL` ve `TRADINGBOT_API_TOKEN` ortam değişkenleri de okunur.
+Uygulamada **Bağlantı** sekmesine adres olarak `http://127.0.0.1:8765`, token olarak
+`demo-token-0123456789` girin. İlk açılışta `TRADINGBOT_API_URL` ve `TRADINGBOT_API_TOKEN` ortam değişkenleri de okunur.
 
 ## Gerçek bota bağlanma
 
@@ -51,9 +53,9 @@ Electron ana sürecinden gider, bu yüzden API'de CORS ayarı gerekmez.
 | Komut | Ne yapar |
 | --- | --- |
 | `npm run dev` | Geliştirme modunda açar |
-| `npm run mock` | Sahte API sunucusunu başlatır |
+| `npm run demo-api` | Gerçek API'yi örnek verilerle başlatır |
 | `npm run typecheck` | TypeScript kontrolü |
-| `npm test` | İzin verilen çağrılar ve mock API'ye karşı istemci testleri |
+| `npm test` | İzin verilen çağrılar ve `python -m api.demo`'ya karşı istemci testleri (`PYTHON` ile yorumlayıcı seçilir, varsayılan `python3`) |
 | `npm run build` | `dist/` ve `dist-electron/` üretir |
 | `npm start` | Derlenmiş uygulamayı açar |
 | `npm run dist` | electron-builder ile kurulum paketi (Windows: NSIS, macOS: dmg, Linux: AppImage) |
@@ -63,9 +65,8 @@ Electron ana sürecinden gider, bu yüzden API'de CORS ayarı gerekmez.
 ```
 desktop/
   electron/    ana süreç: API istemcisi, izin verilen çağrılar, WebSocket, token saklama, preload
-  shared/      API sözleşmesi tipleri (ileride mobil uygulamayla paylaşılabilir)
+  shared/      apiTypes.ts: API tipleri (mobile/src/api/types.ts ile birebir aynı), types.ts: IPC tipleri
   src/         React arayüzü
-  mock/        geliştirme için sahte API
   tests/       node:test testleri
 ```
 

@@ -1,7 +1,25 @@
 import { useState } from "react";
-import type { Position } from "../../shared/types";
+import type { Command, Position } from "../../shared/types";
 import { api } from "../api";
 import { pnlClass, price, signed, time } from "../format";
+
+const FOLLOW_EVERY_MS = 2_000;
+const FOLLOW_FOR_MS = 90_000;
+
+/** Waits until the bot has handled a queued command; null if it has not within FOLLOW_FOR_MS. */
+async function followCommand(id: number): Promise<Command | null> {
+  const until = Date.now() + FOLLOW_FOR_MS;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, FOLLOW_EVERY_MS));
+    try {
+      const cmd = await api.command(id);
+      if (cmd.status !== "pending") return cmd;
+    } catch {
+      // keep trying until the deadline; the status bar reports connection problems
+    }
+  }
+  return null;
+}
 
 interface Props {
   positions: Position[];
@@ -24,8 +42,23 @@ export default function PositionsTable({ positions, onChanged }: Props) {
     try {
       const res = await api.closePosition(p.id);
       setQueued((prev) => new Set(prev).add(p.id));
-      setMessage(`#${p.id} için kapatma komutu kuyruğa alındı (komut ${res.command_id}).`);
+      setMessage(
+        res.already_queued
+          ? `#${p.id} için kapatma komutu zaten kuyrukta (komut ${res.command_id}).`
+          : `#${p.id} için kapatma komutu kuyruğa alındı (komut ${res.command_id}).`,
+      );
       onChanged();
+      void followCommand(res.command_id).then((cmd) => {
+        setQueued((prev) => {
+          const next = new Set(prev);
+          next.delete(p.id);
+          return next;
+        });
+        if (!cmd) setMessage(`#${p.id}: bot komutu henüz işlemedi. Bot çalışıyor mu?`);
+        else if (cmd.status === "done") setMessage(`#${p.id} kapatıldı.${cmd.note ? ` (${cmd.note})` : ""}`);
+        else setMessage(`#${p.id} kapatılamadı: ${cmd.note || "bot komutu reddetti"}`);
+        onChanged();
+      });
     } catch (e) {
       setMessage(`Kapatma komutu gönderilemedi: ${(e as Error).message}`);
     } finally {
@@ -69,7 +102,7 @@ export default function PositionsTable({ positions, onChanged }: Props) {
                   <td className={p.side === "long" ? "pos" : "neg"}>{p.side === "long" ? "LONG" : "SHORT"}</td>
                   <td className="r">{p.quantity}</td>
                   <td className="r">{price(p.entry_price)}</td>
-                  <td className="r">{price(p.last_price)}</td>
+                  <td className="r">{price(p.current_price)}</td>
                   <td className="r">{price(p.stop_loss)}</td>
                   <td className="r">{price(p.trailing_stop)}</td>
                   <td className="r">{price(p.take_profit)}</td>

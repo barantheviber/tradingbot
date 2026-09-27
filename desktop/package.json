@@ -6,7 +6,7 @@
   "main": "dist-electron/electron/main.js",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "mock": "node mock/server.mjs",
+    "demo-api": "cd .. && python -m api.demo",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "build": "tsc -p tsconfig.node.json && vite build",
     "start": "electron .",

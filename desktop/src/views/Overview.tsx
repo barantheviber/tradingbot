@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { BotStatus, Position } from "../../shared/types";
+import type { Position, Status } from "../../shared/types";
 import { api } from "../api";
 import CandleChart from "../components/CandleChart";
 import PnlSummaryCard from "../components/PnlSummaryCard";
@@ -7,7 +7,7 @@ import PositionsTable from "../components/PositionsTable";
 import { usePolling } from "../usePolling";
 
 interface Props {
-  status: BotStatus | null;
+  status: Status | null;
   positions: Position[];
   onChanged: () => void;
 }

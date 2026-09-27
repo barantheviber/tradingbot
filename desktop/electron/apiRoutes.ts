@@ -26,6 +26,9 @@ export function buildRequest(call: ApiCall): HttpRequest {
       return { method: "GET", path: "/api/status" };
     case "positions":
       return { method: "GET", path: "/api/positions" };
+    case "command":
+      if (!Number.isInteger(call.id) || call.id <= 0) throw new Error(`Geçersiz komut id: ${call.id}`);
+      return { method: "GET", path: `/api/commands/${call.id}` };
     case "trades":
       return { method: "GET", path: `/api/trades?limit=${clampLimit(call.limit, 1000)}` };
     case "pnl":
@@ -43,7 +46,7 @@ export function buildRequest(call: ApiCall): HttpRequest {
     case "settings":
       return { method: "GET", path: "/api/settings" };
     case "logs":
-      return { method: "GET", path: `/api/logs?limit=${clampLimit(call.limit, 2000)}` };
+      return { method: "GET", path: `/api/logs?limit=${clampLimit(call.limit, 1000)}` };
     case "closePosition":
       if (!Number.isInteger(call.id) || call.id <= 0) throw new Error(`Geçersiz pozisyon id: ${call.id}`);
       return { method: "POST", path: `/api/positions/${call.id}/close` };

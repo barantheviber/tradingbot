@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { BotStatus, ConnectionConfig, LogLine, Position, WsState } from "../shared/types";
+import type { ConnectionConfig, LogEvent, Position, Status, WsState } from "../shared/types";
 import { api } from "./api";
 import StatusBar from "./components/StatusBar";
 import Connection from "./views/Connection";
@@ -27,9 +27,9 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("overview");
   const [config, setConfig] = useState<ConnectionConfig | null>(null);
   const [wsState, setWsState] = useState<WsState>("closed");
-  const [status, setStatus] = useState<BotStatus | null>(null);
+  const [status, setStatus] = useState<Status | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
-  const [logs, setLogs] = useState<LogLine[]>([]);
+  const [logs, setLogs] = useState<LogEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -58,8 +58,13 @@ export default function App() {
     const offEvent = window.desktop.onEvent((ev) => {
       if (ev.type === "status") setStatus(ev.data);
       else if (ev.type === "positions") setPositions(ev.data);
-      else if (ev.type === "log")
-        setLogs((prev) => (prev.some((l) => l.id === ev.data.id) ? prev : [...prev, ev.data].slice(-MAX_LOGS)));
+      else if (ev.type === "logs")
+        setLogs((prev) => {
+          // pushes arrive newest first; keep the list oldest first without duplicates
+          const seen = new Set(prev.map((l) => l.id));
+          const fresh = ev.data.filter((l) => !seen.has(l.id)).reverse();
+          return fresh.length ? [...prev, ...fresh].slice(-MAX_LOGS) : prev;
+        });
     });
     return () => {
       offState();

@@ -1,8 +1,8 @@
-import type { BotStatus, WsState } from "../../shared/types";
-import { num, pnlClass, signed, time } from "../format";
+import type { Status, WsState } from "../../shared/types";
+import { num, pnlClass, signed } from "../format";
 
 interface Props {
-  status: BotStatus | null;
+  status: Status | null;
   wsState: WsState;
   error: string | null;
 }
@@ -18,11 +18,23 @@ export default function StatusBar({ status, wsState, error }: Props) {
           <span className={`badge ${status.mode === "live" ? "badge-live" : "badge-paper"}`}>
             {status.mode === "live" ? "CANLI" : "PAPER"}
           </span>
-          <span className={`badge ${status.running ? "badge-ok" : "badge-bad"}`}>
-            {status.running ? "Çalışıyor" : "Durdu"}
+          {status.testnet && <span className="badge badge-paper">TESTNET</span>}
+          <span
+            className={`badge ${status.bot_running ? "badge-ok" : "badge-bad"}`}
+            title={heartbeat(status.heartbeat_age_sec)}
+          >
+            {status.bot_running ? "Çalışıyor" : "Durdu"}
           </span>
-          {status.entries_halted && (
-            <span className="badge badge-bad" title="Günlük zarar limiti aşıldı; UTC gece yarısına kadar yeni giriş yok">
+          {!status.trading_enabled && (
+            <span className="badge badge-bad" title="trading_enabled ayarı kapalı; bot yeni pozisyon açmıyor">
+              Yeni girişler kapalı
+            </span>
+          )}
+          {status.entries_halted_by_daily_limit && (
+            <span
+              className="badge badge-bad"
+              title={`Günlük zarar %${num(status.daily_loss_pct)} (limit %${num(status.daily_loss_limit_pct)}); UTC gece yarısına kadar yeni giriş yok`}
+            >
               Yeni girişler durduruldu
             </span>
           )}
@@ -32,8 +44,11 @@ export default function StatusBar({ status, wsState, error }: Props) {
           <span className="meta">
             Bugünkü PnL <b className={pnlClass(status.today_pnl)}>{signed(status.today_pnl)}</b>
           </span>
-          {status.equity !== undefined && <span className="meta">Özsermaye <b>{num(status.equity)}</b></span>}
-          {status.last_candle_at && <span className="meta">Son mum {time(status.last_candle_at)}</span>}
+          {status.equity !== null && <span className="meta">Özsermaye <b>{num(status.equity)}</b></span>}
+          <span className="meta">
+            Pozisyon {status.open_positions}
+            {status.max_open_positions !== null ? `/${status.max_open_positions}` : ""}
+          </span>
         </>
       ) : (
         <span className="meta">Durum bilinmiyor</span>
@@ -44,4 +59,9 @@ export default function StatusBar({ status, wsState, error }: Props) {
       <span className="meta">{WS_LABEL[wsState]}</span>
     </header>
   );
+}
+
+function heartbeat(age: number | null): string {
+  if (age === null) return "Bottan hiç sinyal alınmadı";
+  return `Son sinyal ${Math.round(age)} sn önce`;
 }

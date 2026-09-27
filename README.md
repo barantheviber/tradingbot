@@ -25,9 +25,10 @@ bot_engine.py        Ana döngü: sadece kapanmış mumlar, 1 sn'lik uykularla d
 dashboard/app.py     Streamlit + Plotly paneli
 api/                 Mobil / masaüstü uygulamalar için HTTP + WebSocket API (FastAPI)
 mobile/              Expo (React Native, TypeScript) mobil uygulama
+desktop/             Electron + React + TypeScript masaüstü uygulama
 main.py              Giriş noktası
 backtest.py          Geçmiş veride hızlı sağlama
-tests/               Birim testleri (risk, boyutlandırma, state, strateji, retry, engine)
+tests/               Birim testleri (risk, boyutlandırma, state, strateji, retry, engine, API)
 ```
 
 ### Strateji (çok katmanlı teyit)
@@ -133,9 +134,9 @@ Dashboard hiçbir zaman kendisi emir göndermez ve API anahtarı kullanmaz: **Ka
 komut kuyruğuna bir kayıt ekler, çalışan bot bunu ~1 saniye içinde işler. Bu nedenle manuel kapatma için
 botun çalışıyor olması gerekir.
 
-## Mobil uygulama ve API
+## Mobil ve masaüstü uygulamaları, API
 
-Telefon botun SQLite dosyasını okuyamadığı için bot ile uygulama arasında küçük bir API var.
+Telefon ve masaüstü uygulaması botun SQLite dosyasını doğrudan okumaz; aradaki küçük bir API ile konuşur.
 API botla aynı veritabanını okur; **hiçbir zaman kendisi emir göndermez**, API anahtarlarını
 döndürmez ve paper/live modunu değiştiremez. "Kapat" isteği dashboard'daki gibi komut kuyruğuna
 yazılır ve çalışan bot tarafından işlenir.
@@ -167,7 +168,34 @@ Trafik şifresiz HTTP'dir: API'yi modem üzerinden internete açmayın. Tüm ist
 | `GET /api/logs?limit=&after_id=&category=` | Karar/olay logu (yeniden eskiye) |
 | `WS /api/ws?token=` | `status`, `positions`, `logs` mesajlarını değiştikçe iter |
 
-Mobil uygulamanın kurulumu için: [mobile/README.md](mobile/README.md).
+İki uygulama da aynı şeyleri yapabilir: durumu, grafiği, açık pozisyonları, işlem geçmişini, PnL'i ve
+logları gösterir, strateji/risk ayarlarını düzenler, bir pozisyon için kapatma komutu kuyruğa ekler.
+Hiçbiri emir açamaz, paper/canlı modu değiştiremez veya borsa anahtarlarını göremez.
+
+- Mobil: [mobile/README.md](mobile/README.md) (Expo)
+- Masaüstü: [desktop/README.md](desktop/README.md) (Electron; Windows, macOS, Linux)
+
+API'nin döndürdüğü alanlar `mobile/src/api/types.ts` ve `desktop/shared/apiTypes.ts` dosyalarında
+tanımlıdır. İki dosya birebir aynıdır; `tests/test_api_contract.py` dosyalar birbirinden ya da API'nin
+gerçek cevaplarından saparsa başarısız olur. API'de bir alan değiştirirseniz dosyayı güncelleyip
+diğerinin üstüne kopyalayın.
+
+### Gerçek bot olmadan deneme
+
+```bash
+python -m api.demo      # http://127.0.0.1:8765, token: demo-token-0123456789
+```
+
+Bu komut gerçek API'yi örnek verilerle açar: veritabanı bellekte tutulur, mumlar sentetiktir,
+borsaya hiç bağlanılmaz ve `.env` okunmaz. Küçük bir döngü botun yerine geçer (heartbeat, ara sıra
+log, kuyruktaki kapatma komutlarını işleme). Uygulamaları geliştirirken ve masaüstü testlerinde
+bu kullanılır.
+
+### CI
+
+Her push ve PR'da üç iş çalışır: `test` (compileall, pytest, sentetik backtest), `mobile`
+(tip kontrolü ve Android paketleme) ve `desktop` (tip kontrolü, `python -m api.demo`'ya karşı
+testler ve derleme).
 
 ## Canlıya geçiş (bilinçli adım)
 

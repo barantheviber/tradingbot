@@ -47,13 +47,13 @@ export default function CandleChart({ candles, positions }: Props) {
   useEffect(() => {
     if (!series.current || !volume.current) return;
     series.current.setData(
-      candles.map(([t, o, h, l, cl]) => ({ time: (t / 1000) as UTCTimestamp, open: o, high: h, low: l, close: cl })),
+      candles.map((k) => ({ time: (k.t / 1000) as UTCTimestamp, open: k.o, high: k.h, low: k.l, close: k.c })),
     );
     volume.current.setData(
-      candles.map(([t, o, , , cl, v]) => ({
-        time: (t / 1000) as UTCTimestamp,
-        value: v,
-        color: cl >= o ? "rgba(38,166,154,0.4)" : "rgba(239,83,80,0.4)",
+      candles.map((k) => ({
+        time: (k.t / 1000) as UTCTimestamp,
+        value: k.v,
+        color: k.c >= k.o ? "rgba(38,166,154,0.4)" : "rgba(239,83,80,0.4)",
       })),
     );
     if (!fitted.current && candles.length) {
@@ -73,10 +73,14 @@ export default function CandleChart({ candles, positions }: Props) {
         lines.current.push(s.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title }));
       };
       add(p.entry_price, "#8ab4f8", `#${p.id} giriş`, LineStyle.Solid);
-      add(p.stop_loss, "#ef5350", `#${p.id} stop`);
+      // the bot trails by moving stop_loss; initial_stop keeps where it started
+      if (p.trailing_active) {
+        add(p.stop_loss, "#f6c344", `#${p.id} trailing stop`);
+        add(p.initial_stop, "#ef5350", `#${p.id} ilk stop`, LineStyle.Dotted);
+      } else {
+        add(p.stop_loss, "#ef5350", `#${p.id} stop`);
+      }
       add(p.take_profit, "#26a69a", `#${p.id} TP`);
-      if (p.trailing_stop !== undefined && p.trailing_stop !== null && p.trailing_stop !== p.stop_loss)
-        add(p.trailing_stop, "#f6c344", `#${p.id} trailing`);
     }
   }, [positions]);
 

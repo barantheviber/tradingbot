@@ -41,8 +41,10 @@ export default function Settings() {
               <SettingRow
                 key={s.key}
                 setting={s}
-                onSaved={(updated) =>
-                  settings.setData((prev) => (prev ?? []).map((x) => (x.key === updated.key ? updated : x)))
+                onSaved={(key, value) =>
+                  settings.setData((prev) =>
+                    (prev ?? []).map((x) => (x.key === key ? { ...x, value, updated_at: new Date().toISOString() } : x)),
+                  )
                 }
               />
             ))}
@@ -53,19 +55,19 @@ export default function Settings() {
   );
 }
 
-function SettingRow({ setting, onSaved }: { setting: Setting; onSaved: (s: Setting) => void }) {
+function SettingRow({ setting, onSaved }: { setting: Setting; onSaved: (key: string, value: SettingValue) => void }) {
   const [draft, setDraft] = useState<string>(String(setting.value));
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
-  const isBool = typeof setting.value === "boolean";
-  const isNum = typeof setting.value === "number";
+  const isBool = setting.type === "bool";
+  const isNum = setting.type === "int" || setting.type === "float";
 
   async function save(value: SettingValue) {
     setState("saving");
     setError(null);
     try {
       const updated = await api.updateSetting(setting.key, value);
-      onSaved(updated);
+      onSaved(updated.key, updated.value);
       setDraft(String(updated.value));
       setState("saved");
     } catch (e) {
@@ -77,8 +79,8 @@ function SettingRow({ setting, onSaved }: { setting: Setting; onSaved: (s: Setti
   function submit() {
     if (isNum) {
       const n = Number(draft.replace(",", "."));
-      if (!Number.isFinite(n)) {
-        setError("Sayı girin");
+      if (!Number.isFinite(n) || (setting.type === "int" && !Number.isInteger(n))) {
+        setError(setting.type === "int" ? "Tam sayı girin" : "Sayı girin");
         setState("error");
         return;
       }

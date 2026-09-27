@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import type { LogLine } from "../../shared/types";
+import type { LogEvent } from "../../shared/types";
 import { time } from "../format";
 
 interface Props {
-  logs: LogLine[];
+  logs: LogEvent[];
   onRefresh: () => void;
 }
 

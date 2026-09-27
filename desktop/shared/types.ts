@@ -1,104 +1,12 @@
-// Types for the bot's HTTP API (the contract the api/ thread implements) and the
-// IPC bridge between Electron's main process and the renderer.
-// Field names follow the SQLite columns in state_manager.py (snake_case), since the
-// API serves those rows. Fields not guaranteed by the contract are optional.
+// API contract types (shared with the mobile app) plus the IPC bridge between
+// Electron's main process and the renderer.
 
-export type Mode = "paper" | "live";
+import type { SettingValue, WsMessage } from "./apiTypes";
 
-export interface BotStatus {
-  mode: Mode;
-  exchange: string;
-  symbols: string[];
-  timeframe: string;
-  running: boolean;
-  today_pnl: number;
-  /** true when the daily loss limit stops new entries until UTC midnight */
-  entries_halted: boolean;
-  equity?: number;
-  last_candle_at?: string | null;
-  server_time?: string;
-}
+export * from "./apiTypes";
 
-export interface Position {
-  id: number;
-  symbol: string;
-  side: "long" | "short";
-  quantity: number;
-  entry_price: number;
-  stop_loss: number;
-  take_profit: number | null;
-  initial_stop?: number;
-  /** current trailing stop level; null when trailing has not activated */
-  trailing_stop?: number | null;
-  last_price?: number | null;
-  unrealized_pnl: number | null;
-  opened_at: string;
-  mode?: Mode;
-  /** true when a close command is already queued for this position */
-  close_pending?: boolean;
-}
-
-export interface Trade {
-  id: number;
-  position_id: number | null;
-  symbol: string;
-  side: string;
-  action: string;
-  quantity: number;
-  price: number;
-  fee: number;
-  pnl: number | null;
-  reason: string | null;
-  mode: Mode;
-  timestamp: string;
-}
-
-/** Mirrors performance.compute_performance. profit_factor may be null for infinity. */
-export interface PnlSummary {
-  trades: number;
-  wins: number;
-  losses: number;
-  win_rate_pct: number;
-  total_pnl: number;
-  avg_win: number;
-  avg_loss: number;
-  profit_factor: number | null;
-  expectancy: number;
-  max_drawdown: number;
-  max_drawdown_pct: number;
-  fees: number;
-}
-
-/** [timestamp_ms, open, high, low, close, volume], as ccxt returns OHLCV. */
-export type Candle = [number, number, number, number, number, number];
-
-export type SettingValue = number | string | boolean;
-
-export interface Setting {
-  key: string;
-  value: SettingValue;
-  description: string;
-  updated_at: string;
-}
-
-export interface LogLine {
-  id: number;
-  timestamp: string;
-  level: string;
-  category: string;
-  symbol: string | null;
-  message: string;
-}
-
-export interface CloseResult {
-  command_id: number;
-  status: string;
-}
-
-export type WsEvent =
-  | { type: "status"; data: BotStatus }
-  | { type: "positions"; data: Position[] }
-  | { type: "log"; data: LogLine };
+/** Live messages the main process forwards to the renderer (pings stay in main). */
+export type WsEvent = Exclude<WsMessage, { type: "ping" }>;
 
 // ---------------------------------------------------------------- IPC bridge
 
@@ -122,6 +30,7 @@ export type WsState = "connecting" | "open" | "closed";
 export type ApiCall =
   | { kind: "status" }
   | { kind: "positions" }
+  | { kind: "command"; id: number }
   | { kind: "trades"; limit: number }
   | { kind: "pnl" }
   | { kind: "candles"; symbol: string; timeframe: string; limit: number }
