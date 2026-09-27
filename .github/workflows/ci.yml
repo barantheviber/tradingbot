@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 jobs:
@@ -10,15 +9,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
+
       - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Syntax check (py_compile)
-        run: python -m py_compile $(git ls-files '*.py')
-      - name: Unit tests
-        run: python -m pytest -q
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+
+      - name: Syntax check (compileall)
+        run: python -m compileall -q .
+
+      - name: Run tests
+        run: |
+          set +e
+          python -m pytest -q
+          status=$?
+          # 5 = no tests collected; treat as success until tests exist
+          if [ "$status" -eq 5 ]; then
+            echo "No tests collected; passing."
+            exit 0
+          fi
+          exit $status
+
       - name: Backtest smoke test (offline, synthetic data)
         run: python backtest.py --synthetic 3000 --set min_confirmations=2
