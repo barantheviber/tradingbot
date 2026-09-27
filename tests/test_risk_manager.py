@@ -123,9 +123,16 @@ def test_plan_trade_ok():
     # defaults: stop 3 ATR, take-profit 10R
     assert plan.stop_loss == pytest.approx(94.0)
     assert plan.take_profit == pytest.approx(160.0)
-    # 1% of 10k = 100 risk / 6 distance = 16.67 units = 1667 notional, under the 25% cap
-    assert plan.notional == pytest.approx(10_000 / 6)
+    # 1% of 10k = 100 risk / (6 distance + 0.35% round-trip costs of 100) = 15.75 units, under the 25% cap
+    assert plan.quantity == pytest.approx(100 / 6.35)
     assert plan.risk_amount == pytest.approx(100.0)
+
+
+def test_position_size_includes_round_trip_costs():
+    # stop distance 50 + 0.35% of 1000 = 3.5 -> 100 / 53.5 units; loss at the stop incl. costs = 100
+    qty = calculate_position_size(10_000, 1_000, 950, 1.0, round_trip_cost_pct=0.35)
+    assert qty == pytest.approx(100 / 53.5)
+    assert calculate_position_size(10_000, 1_000, 950, 1.0, round_trip_cost_pct=-1) == pytest.approx(2.0)
 
 
 def test_plan_trade_caps_notional_at_symbol_exposure():

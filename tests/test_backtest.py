@@ -63,3 +63,15 @@ def test_matrix_periods_and_aggregate():
              "win_rate_pct": 0.0}]
     a = aggregate(rows)
     assert a["positive_markets"] == 1 and a["mean_win_rate_pct"] == pytest.approx(50.0)
+
+
+def test_stopped_trades_lose_at_most_the_risk_budget():
+    # risk budget = qty * (stop distance + round-trip costs); a stop that fills at its level stays within it
+    df = generate_synthetic_ohlcv(3000, seed=11)
+    res = run_backtest(df, {"min_confirmations": 2, "max_symbol_exposure_pct": 100.0},
+                       fee_rate=0.001, slippage_bps=5, stop_slippage_bps=5)
+    stops = [t for t in res["trades"] if t.exit_reason == "stop_loss" and t.stop_loss == t.initial_stop
+             and t.exit_price >= t.stop_loss * (1 - 0.0011)]  # no gap through the stop
+    assert stops
+    for t in stops:
+        assert -t.pnl <= t.risk_amount * 1.0001

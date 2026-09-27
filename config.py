@@ -130,6 +130,7 @@ DEFAULT_SETTINGS: Dict[str, tuple] = {
     "min_atr_pct": (0.0, "Giriş için ATR fiyatın en az yüzde kaçı olmalı (maliyetlere göre çok sakin piyasayı atlar). 0 = kapalı."),
     # --- risk
     "risk_per_trade_pct": (1.0, "İşlem başına riske edilen özsermaye yüzdesi."),
+    "round_trip_cost_pct": (0.35, "Pozisyon boyutunda hesaba katılan giriş+çıkış maliyeti (komisyon + kayma, % notional). Stopta toplam kayıp risk yüzdesini aşmaz."),
     "atr_sl_multiplier": (3.0, "Stop-loss mesafesi = ATR x bu katsayı. Pozisyon boyutu buna göre küçülür, işlem başı risk değişmez."),
     "risk_reward_ratio": (10.0, "Take-profit mesafesi = stop mesafesi x bu oran (10 = kazançlar çoğunlukla trailing stop ile kapanır)."),
     "trailing_enabled": (True, "Trailing stop aktif."),

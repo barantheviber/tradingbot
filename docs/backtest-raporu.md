@@ -6,7 +6,7 @@ _Tarih: 27 Eylül 2026. Veri: Binance spot, Ocak 2021 ile Ağustos 2026 arası (
 
 - **Eski varsayılan ayarlar gerçek veride para kaybettiriyordu.** 5 parite × 3 zaman diliminden oluşan 15 piyasanın 13'ünde tüm dönem zararla kapandı. Kâr faktörü 0,66, kazanma oranı %30,5 oldu. Hiçbir piyasa test dönemini (Temmuz 2024 sonrası) kârla bitiremedi.
 - **Asıl sorun maliyetlerdi.** Stoplar dar (1,5 ATR), kâr al hedefi yakın (2R) olduğu için işlemler ortalama 8 mum sürüyordu. Her işlemde ödenen %0,1 + %0,1 komisyon ve kayma, planlanan riskin yaklaşık üçte birini yiyordu.
-- **Yeni varsayılanlar** trend takibine dayanıyor: geniş stop (3 ATR), uzak kâr hedefi (10R), 5 ATR'lik trailing stop ve RSI üst sınırının kaldırılması. **4 saatlik** grafikte, ayarların hiç görmediği test döneminde 5 paritenin 5'inde de küçük bir kâr çıktı. Ortalama getiri +%4,3, Sharpe 0,42, kâr faktörü 1,60 oldu.
+- **Yeni varsayılanlar** trend takibine dayanıyor: geniş stop (3 ATR), uzak kâr hedefi (10R), 5 ATR'lik trailing stop ve RSI üst sınırının kaldırılması. **4 saatlik** grafikte, ayarların hiç görmediği test döneminde 5 paritenin 5'inde de küçük bir kâr çıktı. Ortalama getiri +%4,3, Sharpe 0,44, kâr faktörü 1,62 oldu.
 - **15 dakikalık grafik her iki ayarla da ağır zarar ediyor.** Burada maliyetler kazancı aşıyor. Botu 15 dakikada çalıştırmayın. Varsayılan zaman dilimi 1 saatten **4 saate** çekildi.
 - **1 saatlik grafikte sonuç karışık.** Test döneminde ortalama +%3,4 çıktı, ama bu büyük ölçüde XRP'nin tek başına +%35 kazancından geliyor. 5 paritenin 3'ü zararda.
 - **Bu sonuçlar kâr garantisi değildir.** Yeni ayarlar da sadece hareketsiz tutmaya (al-ve-tut) göre çok daha az getiri sağladı. 2022 gibi düşüş yıllarında küçük zarar etti. Ayrıntılar aşağıda.
@@ -22,7 +22,7 @@ _Tarih: 27 Eylül 2026. Veri: Binance spot, Ocak 2021 ile Ağustos 2026 arası (
 - Stop ile çıkışlarda 5 baz puan ek kayma var, çünkü canlı bot stopu ancak bir sonraki fiyat sorgusunda fark ediyor.
 - Aynı mumda hem stop hem hedef görülürse önce stopun tetiklendiği varsayılır. Fiyat seviyenin ötesinde açılırsa (boşluk) dolum açılış fiyatından yapılır.
 - 10 USDT'nin altındaki emirler atlanır (borsanın asgari emir tutarı).
-- Pozisyon boyutu canlıdaki gibi hesaplanır: işlem başı risk %1 ve sembol başına en fazla %25 maruziyet. Günlük %5 zarar limiti de uygulanır.
+- Pozisyon boyutu canlıdaki gibi hesaplanır: işlem başı risk %1 (komisyon ve kayma dahil) ve sembol başına en fazla %25 maruziyet. Günlük %5 zarar limiti de uygulanır.
 - Her piyasa 10.000 USDT ile ve tek başına test edildi. Canlı bot birkaç sembolü aynı bakiyeyle işler; bu yüzden bu rakamlar portföy sonucu değildir.
 
 **Aşırı uyumdan (overfitting) korunma.**
@@ -30,7 +30,7 @@ _Tarih: 27 Eylül 2026. Veri: Binance spot, Ocak 2021 ile Ağustos 2026 arası (
 - Veri ikiye bölündü. **Geliştirme dönemi** Ocak 2021 ile Haziran 2024 arası, **test dönemi** Temmuz 2024 ile Ağustos 2026 arası.
 - Bütün denemeler geliştirme dönemi içinde yapıldı: 1 saat ve 4 saat, 5 parite. Geliştirme dönemi ayrıca dört dilime bölündü (2021, 2022, 2023, 2024'ün ilk yarısı). Sadece dilimlerin çoğunda eski ayarları geçen ayarlar aday oldu.
 - **Toplam 69 ayar kombinasyonu denendi.** Bu kadar çok deneme, şans eseri iyi görünen bir ayar seçme riskini artırır. Rakamları bu gözle okuyun.
-- Test dönemine sadece bir kez, son iki adayla bakıldı. Sonra hiçbir ayar değiştirilmedi.
+- Test dönemine sadece bir kez, son iki adayla bakıldı. Sonra hiçbir strateji ayarı değiştirilmedi. Maliyet dahil boyutlandırma sadece riski düşüren bir düzeltme; aynı test dönemiyle bir kez daha kontrol edildi.
 - Maliyet varsayımları hiç düşürülmedi.
 
 ## Sonuçlar
@@ -42,11 +42,11 @@ Tablolardaki değerler 5 paritenin ortalamasıdır. "Kârlı" sütunu, kârla ka
 | Zaman dilimi | Ayar | İşlem | Kazanma % | Kâr faktörü | Getiri % | Maks. düşüş % | Sharpe | Kârlı |
 |---|---|---|---|---|---|---|---|---|
 | 4h | eski | 94 | 24,7 | 0,51 | -3,74 | 4,66 | -0,82 | 0/5 |
-| 4h | **yeni** | 92 | 31,3 | 1,60 | **+4,30** | 6,48 | **0,42** | **5/5** |
+| 4h | **yeni** | 92 | 31,3 | 1,62 | **+4,29** | 6,13 | **0,44** | **5/5** |
 | 1h | eski | 374 | 32,8 | 0,67 | -4,90 | 6,53 | -0,95 | 0/5 |
-| 1h | yeni | 437 | 29,7 | 1,10 | +3,44 | 10,96 | 0,03 | 2/5 |
+| 1h | yeni | 437 | 29,7 | 1,10 | +3,39 | 10,78 | 0,04 | 2/5 |
 | 15m | eski | 1727 | 24,5 | 0,38 | -25,74 | 26,14 | -4,83 | 0/5 |
-| 15m | yeni | 1746 | 25,4 | 0,64 | -21,75 | 26,44 | -2,13 | 1/5 |
+| 15m | yeni | 1746 | 25,4 | 0,64 | -21,85 | 26,43 | -2,14 | 1/5 |
 
 Aynı dönemde al-ve-tut ortalama +%34 getirdi. ETH ve SOL tek başına yaklaşık %30 düştü, XRP ise %190 yükseldi.
 
@@ -55,11 +55,11 @@ Aynı dönemde al-ve-tut ortalama +%34 getirdi. ETH ve SOL tek başına yaklaş�
 | Zaman dilimi | Ayar | İşlem | Kazanma % | Kâr faktörü | Getiri % | Maks. düşüş % (en kötü) | Sharpe | Kârlı |
 |---|---|---|---|---|---|---|---|---|
 | 4h | eski | 243 | 31,3 | 0,75 | -4,77 | 8,21 (12,37) | -0,38 | 1/5 |
-| 4h | **yeni** | 268 | 33,5 | 1,87 | **+24,01** | 9,23 (13,13) | **0,71** | **5/5** |
+| 4h | **yeni** | 268 | 33,5 | 1,89 | **+23,51** | 8,78 (12,46) | **0,72** | **5/5** |
 | 1h | eski | 994 | 34,5 | 0,77 | -10,66 | 15,79 (19,98) | -0,68 | 1/5 |
-| 1h | yeni | 1121 | 30,0 | 1,09 | +7,76 | 15,56 (20,88) | 0,19 | 3/5 |
+| 1h | yeni | 1121 | 30,0 | 1,09 | +7,62 | 15,07 (20,39) | 0,19 | 3/5 |
 | 15m | eski | 4317 | 25,7 | 0,47 | -52,44 | 53,24 (58,10) | -3,87 | 0/5 |
-| 15m | yeni | 4469 | 25,3 | 0,72 | -46,61 | 53,40 (59,63) | -1,34 | 0/5 |
+| 15m | yeni | 4469 | 25,3 | 0,72 | -46,60 | 53,16 (59,57) | -1,35 | 0/5 |
 
 Tüm dönem getirisinin büyük kısmı geliştirme döneminden geliyor. Ayarlar bu dönemde seçildiği için oradaki rakamlar olduğundan iyi görünür. Güvenilir rakam, bir önceki tablodaki test dönemi sonuçlarıdır.
 
@@ -67,12 +67,12 @@ Tüm dönem getirisinin büyük kısmı geliştirme döneminden geliyor. Ayarlar
 
 | Yıl | Getiri % | Maks. düşüş % | Kâr faktörü | Kârlı | Al-ve-tut % |
 |---|---|---|---|---|---|
-| 2021 | +11,78 | 4,61 | 4,68 | 5/5 | +2494 |
-| 2022 | -1,12 | 3,77 | 0,64 | 1/5 | -68 |
-| 2023 | +6,02 | 5,85 | 2,24 | 3/5 | +255 |
-| 2024 | +3,70 | 6,26 | 1,73 | 3/5 | +124 |
-| 2025 | +2,26 | 3,79 | 2,26 | 4/5 | -9 |
-| 2026 (8 ay) | -0,13 | 3,25 | 0,98 | 3/5 | -18 |
+| 2021 | +11,38 | 4,43 | 4,69 | 5/5 | +2494 |
+| 2022 | -1,04 | 3,59 | 0,64 | 1/5 | -68 |
+| 2023 | +5,93 | 5,63 | 2,27 | 3/5 | +255 |
+| 2024 | +3,56 | 5,98 | 1,73 | 3/5 | +124 |
+| 2025 | +2,25 | 3,63 | 2,27 | 4/5 | -9 |
+| 2026 (8 ay) | -0,03 | 3,09 | 0,99 | 3/5 | -18 |
 
 Strateji sadece long işlem açıyor (spotta short yok). Yükselen piyasada kazanıyor, düşen piyasada (2022) az işlem açıp küçük zarar ediyor. Eski ayarlar 2022'de biraz daha iyiydi (+%1,3).
 
@@ -80,11 +80,11 @@ Strateji sadece long işlem açıyor (spotta short yok). Yükselen piyasada kaza
 
 | Parite | İşlem | Kazanma % | Kâr faktörü | Getiri % | Maks. düşüş % | Al-ve-tut % |
 |---|---|---|---|---|---|---|
-| BTC | 18 | 50,0 | 2,52 | +8,51 | 3,33 | +23,9 |
-| ETH | 17 | 17,6 | 1,05 | +0,44 | 6,39 | -29,5 |
-| SOL | 18 | 33,3 | 1,59 | +3,90 | 5,06 | -30,2 |
-| BNB | 22 | 31,8 | 1,04 | +0,48 | 8,17 | +18,1 |
-| XRP | 17 | 23,5 | 1,78 | +8,18 | 9,44 | +188,2 |
+| BTC | 18 | 50,0 | 2,50 | +8,10 | 3,15 | +23,9 |
+| ETH | 17 | 17,6 | 1,04 | +0,38 | 6,00 | -29,5 |
+| SOL | 18 | 33,3 | 1,66 | +4,09 | 4,77 | -30,2 |
+| BNB | 22 | 31,8 | 1,08 | +0,86 | 7,81 | +18,1 |
+| XRP | 17 | 23,5 | 1,81 | +8,00 | 8,93 | +188,2 |
 
 ## Ne değişti
 
@@ -95,8 +95,18 @@ Strateji sadece long işlem açıyor (spotta short yok). Yükselen piyasada kaza
 | `trailing_atr_multiplier` | 2,0 | **5,0** | Trende nefes alacak alan bırakıyor. |
 | `rsi_long_max` | 70 | **100** | Verilerde en güçlü devam hareketleri RSI 70'in üstündeki kırılımlardan geldi. Bu sınır onları eliyordu. Momentum katmanı artık sadece RSI ≥ 45 şartını arıyor. |
 | `TIMEFRAME` | 1h | **4h** | Test döneminde kazanan tek zaman dilimi. |
+| `round_trip_cost_pct` (yeni) | yok | **0,35** | Pozisyon boyutu artık giriş ve çıkış komisyonu ile kaymayı da hesaba katıyor. Böylece stopta toplam kayıp ayarlanan %1 riski aşmıyor. Bu ayar riski sadece düşürür. |
 
 Değişmeyenler: çok katmanlı teyit yapısı (EMA200 trend filtresi + en az 3 teyit), işlem başı risk %1, günlük zarar limiti %5, sembol başına %25 maruziyet, en fazla 3 pozisyon, varsayılan paper modu ve canlıya geçiş onayı.
+
+**Maliyet dahil pozisyon boyutu.** Önceden pozisyon boyutu sadece stop mesafesine göre hesaplanıyordu. Stop tetiklenince komisyon ve kayma yüzünden gerçek kayıp %1'in biraz üstüne çıkıyordu. Şimdi hesap şöyle: miktar = risk tutarı / (stop mesafesi + giriş fiyatı × %0,35). Ayarlar yeniden seçilmeden, aynı test dönemi bir kez daha çalıştırıldı:
+
+| 4h, test dönemi | Getiri % | Maks. düşüş % (en kötü) | Kâr faktörü | Sharpe |
+|---|---|---|---|---|
+| maliyet hesaba katılmadan | +4,30 | 6,48 (9,44) | 1,60 | 0,42 |
+| maliyet hesaba katılarak | +4,29 | 6,13 (8,93) | 1,62 | 0,44 |
+
+Etkisi küçük, çünkü pozisyonlar çoğu zaman %25 maruziyet sınırına takılıyor. Düşüşler biraz azaldı, getiri neredeyse aynı kaldı. Bu raporun diğer tablolarındaki "yeni" rakamlar maliyet dahil boyutlandırmayla hesaplandı.
 
 **Yeni, varsayılan olarak kapalı ayarlar** (panelden canlı açılabilir):
 

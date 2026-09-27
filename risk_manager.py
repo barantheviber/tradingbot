@@ -20,6 +20,7 @@ log = get_logger("risk")
 @dataclass
 class RiskParams:
     risk_per_trade_pct: float = 1.0
+    round_trip_cost_pct: float = 0.35
     atr_sl_multiplier: float = 1.5
     risk_reward_ratio: float = 2.0
     trailing_enabled: bool = True
@@ -78,18 +79,22 @@ def calculate_position_size(
     risk_pct: float,
     max_notional: Optional[float] = None,
     qty_step: Optional[float] = None,
+    round_trip_cost_pct: float = 0.0,
 ) -> float:
     """Quantity such that hitting the stop loses ``risk_pct`` % of equity.
 
-    qty = (equity * risk_pct / 100) / |entry - stop|, then capped so that
-    qty * entry <= max_notional, then rounded *down* to ``qty_step``.
+    qty = (equity * risk_pct / 100) / (|entry - stop| + entry * round_trip_cost_pct / 100),
+    i.e. the loss at the stop *including* entry + exit fees and slippage stays
+    within the risk budget; then capped so that qty * entry <= max_notional,
+    then rounded *down* to ``qty_step``.
     """
     if equity <= 0 or entry <= 0 or risk_pct <= 0:
         return 0.0
     stop_distance = abs(entry - stop)
     if stop_distance <= 0:
         return 0.0
-    qty = (equity * risk_pct / 100.0) / stop_distance
+    loss_per_unit = stop_distance + entry * max(0.0, round_trip_cost_pct) / 100.0
+    qty = (equity * risk_pct / 100.0) / loss_per_unit
     if max_notional is not None:
         qty = min(qty, max(0.0, max_notional) / entry)
     if qty_step and qty_step > 0:
@@ -203,12 +208,13 @@ class RiskManager:
         if max_notional <= 0:
             return TradePlan(False, f"symbol exposure cap reached for {symbol}")
 
-        qty = calculate_position_size(equity, entry, stop, p.risk_per_trade_pct, max_notional, qty_step)
+        cost_pct = max(0.0, p.round_trip_cost_pct)
+        qty = calculate_position_size(equity, entry, stop, p.risk_per_trade_pct, max_notional, qty_step, cost_pct)
         if qty <= 0:
             return TradePlan(False, "position size rounds to zero")
         return TradePlan(
             allowed=True, reason="ok", side=side, entry_price=entry, quantity=qty, stop_loss=stop,
-            take_profit=target, risk_amount=qty * abs(entry - stop),
+            take_profit=target, risk_amount=qty * (abs(entry - stop) + entry * cost_pct / 100.0),
         )
 
     def trailing_stop_for(self, position: Mapping[str, Any], atr: float) -> float:
