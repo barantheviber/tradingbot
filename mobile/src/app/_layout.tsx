@@ -23,6 +23,7 @@ function Root() {
     <Stack screenOptions={{ contentStyle: { backgroundColor: colors.bg } }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="connect" options={{ title: 'Bağlantı' }} />
+      <Stack.Screen name="setup" options={{ title: 'Kurulum' }} />
     </Stack>
   );
 }

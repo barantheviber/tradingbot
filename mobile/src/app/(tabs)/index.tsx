@@ -3,15 +3,17 @@ import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native'
 
 import { api } from '../../api/client';
 import type { Candle, Pnl } from '../../api/types';
+import { BotControl } from '../../components/BotControl';
 import { CandleChart } from '../../components/CandleChart';
 import { Banner, Card, Stat, styles } from '../../components/ui';
-import { useRequiredConnection } from '../../lib/connection';
+import { useConnection, useRequiredConnection } from '../../lib/connection';
 import { age, num, pct, signed } from '../../lib/format';
 import { useLive } from '../../lib/live';
 import { colors, pnlColor } from '../../lib/theme';
 
 export default function OverviewScreen() {
   const connection = useRequiredConnection();
+  const { local } = useConnection();
   const { status, positions, wsConnected, error, refresh } = useLive();
   const [pnl, setPnl] = useState<Pnl | null>(null);
   const [symbol, setSymbol] = useState<string | null>(null);
@@ -55,8 +57,9 @@ export default function OverviewScreen() {
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
     >
-      {error ? <Banner tone="error" text={error} /> : null}
-      {status && !status.bot_running ? (
+      {local ? <BotControl positions={positions} /> : null}
+      {error && !local ? <Banner tone="error" text={error} /> : null}
+      {status && !status.bot_running && !local ? (
         <Banner text={`Bot çalışmıyor görünüyor (${age(status.heartbeat_age_sec)}). Kapatma komutları bot açılınca işlenir.`} />
       ) : null}
       {status?.entries_halted_by_daily_limit ? (
