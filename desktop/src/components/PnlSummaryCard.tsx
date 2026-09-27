@@ -1,8 +1,8 @@
-import type { PnlSummary } from "../../shared/types";
+import type { Pnl } from "../../shared/types";
 import { num, pnlClass, signed } from "../format";
 
 interface Props {
-  summary: PnlSummary | null;
+  summary: Pnl | null;
   error: string | null;
 }
 
@@ -15,10 +15,11 @@ export default function PnlSummaryCard({ summary: s, error }: Props) {
       </div>
       {s ? (
         <div className="stats">
-          <Stat label="Toplam PnL" value={signed(s.total_pnl)} cls={pnlClass(s.total_pnl)} />
+          <Stat label="Gerçekleşen PnL" value={signed(s.total_pnl)} cls={pnlClass(s.total_pnl)} />
+          <Stat label="Açık pozisyon PnL" value={signed(s.unrealized_pnl)} cls={pnlClass(s.unrealized_pnl)} />
           <Stat label="İşlem" value={String(s.trades)} />
           <Stat label="Kazanma oranı" value={`%${num(s.win_rate_pct, 1)}`} />
-          <Stat label="Profit factor" value={s.profit_factor === null ? "∞" : num(s.profit_factor)} />
+          <Stat label="Profit factor" value={s.profit_factor_infinite ? "∞" : num(s.profit_factor)} />
           <Stat label="Ort. kazanç" value={num(s.avg_win)} cls="pos" />
           <Stat label="Ort. kayıp" value={num(s.avg_loss)} cls="neg" />
           <Stat label="Beklenti" value={signed(s.expectancy)} cls={pnlClass(s.expectancy)} />

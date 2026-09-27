@@ -60,3 +60,44 @@ jobs:
 
       - name: Bundle (Android, catches missing imports)
         run: npx expo export --platform android --output-dir /tmp/expo-export
+
+  desktop:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      # the desktop tests run against the real API (python -m api.demo, sample data)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install API dependencies
+        working-directory: .
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests (against the demo API)
+        run: npm test
+        env:
+          PYTHON: python
+
+      - name: Build renderer and main process
+        run: npm run build

@@ -45,7 +45,8 @@ export class LiveFeed {
     socket.on("message", (raw) => {
       try {
         const msg = JSON.parse(raw.toString()) as WsEvent;
-        if (msg && (msg.type === "status" || msg.type === "positions" || msg.type === "log")) this.onEvent(msg);
+        // "ping" frames only keep the connection alive
+        if (msg && (msg.type === "status" || msg.type === "positions" || msg.type === "logs")) this.onEvent(msg);
       } catch {
         // ignore malformed frames
       }
