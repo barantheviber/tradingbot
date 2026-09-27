@@ -13,12 +13,12 @@ import json
 import sys
 
 from bot_engine import BotEngine
-from config import DEFAULT_SETTINGS, load_config
+from config import DEFAULT_SETTINGS, legacy_env_warnings, load_config
 from exchange_client import ExchangeClient
 from execution import build_execution_client
 from logging_setup import setup_logging
 from risk_manager import RiskManager
-from state_manager import StateManager
+from state_manager import LegacyDatabaseError, StateManager
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -36,7 +36,14 @@ def main(argv=None) -> int:
     config = load_config(args.env_file)
     log = setup_logging(config.log_dir, config.log_level, secrets=config.secrets())
 
-    state = StateManager(config.db_path)
+    for warning in legacy_env_warnings():
+        log.warning(f"Config: {warning}")
+
+    try:
+        state = StateManager(config.db_path)
+    except LegacyDatabaseError as exc:
+        log.error(str(exc))
+        return 2
     state.seed_default_settings(DEFAULT_SETTINGS)
 
     if args.show_settings or args.set:

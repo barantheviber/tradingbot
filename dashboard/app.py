@@ -27,7 +27,7 @@ from config import DEFAULT_SETTINGS, load_config  # noqa: E402
 from exchange_client import ExchangeClient  # noqa: E402
 from performance import compute_performance  # noqa: E402
 from risk_manager import daily_loss_pct, unrealized_pnl  # noqa: E402
-from state_manager import StateManager  # noqa: E402
+from state_manager import LegacyDatabaseError, StateManager  # noqa: E402
 from strategy import StrategyParams, compute_indicators  # noqa: E402
 
 st.set_page_config(page_title="Trading Bot", page_icon="📈", layout="wide")
@@ -59,7 +59,11 @@ def load_candles(symbol: str, timeframe: str, limit: int) -> pd.DataFrame:
 
 
 config = get_config()
-state = get_state(config.db_path)
+try:
+    state = get_state(config.db_path)
+except LegacyDatabaseError as exc:
+    st.error(str(exc))
+    st.stop()
 mode = config.mode
 
 # ------------------------------------------------------------------ sidebar

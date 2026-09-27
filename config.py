@@ -47,6 +47,37 @@ def _env_str(name: str, default: str = "") -> str:
     return raw.strip() if raw not in (None, "") else default
 
 
+# Env var names used by the short-lived earlier version of this bot (PR #2).
+# They are NOT read any more; main.py warns when one is set so a .env copied
+# from the old .env.example does not silently fall back to defaults.
+LEGACY_ENV_VARS: Dict[str, str] = {
+    "EXCHANGE_API_KEY": "API_KEY",
+    "EXCHANGE_API_SECRET": "API_SECRET",
+    "EXCHANGE_API_PASSWORD": "API_PASSWORD",
+    "EXCHANGE_SANDBOX": "USE_TESTNET",
+    "SYMBOL": "SYMBOLS",
+    "CANDLE_LOOKBACK": "OHLCV_LIMIT",
+    "POLL_INTERVAL_SECONDS": "POLL_INTERVAL_SEC",
+    "RETRY_MAX_ATTEMPTS": "MAX_RETRIES",
+    "DATA_DIR": "DB_PATH",
+    "DB_FILENAME": "DB_PATH",
+}
+for _old in ("EMA_TREND_PERIOD", "RSI_PERIOD", "RSI_LOWER", "RSI_UPPER", "MACD_FAST", "MACD_SLOW", "MACD_SIGNAL",
+             "VOLUME_MA_PERIOD", "VOLUME_CONFIRMATION_MULTIPLIER", "DONCHIAN_PERIOD", "ATR_PERIOD",
+             "RISK_PER_TRADE_PCT", "RISK_REWARD_RATIO", "ATR_SL_MULTIPLIER", "TRAILING_ATR_MULTIPLIER",
+             "MAX_DAILY_DRAWDOWN_PCT", "MAX_CONCURRENT_POSITIONS", "MAX_EXPOSURE_PER_SYMBOL_PCT"):
+    LEGACY_ENV_VARS[_old] = "the live settings (dashboard or `python main.py --set`)"
+
+
+def legacy_env_warnings() -> List[str]:
+    """One message per legacy env var that is set (they are ignored)."""
+    return [
+        f"{old} is no longer read; use {new} instead (see .env.example)"
+        for old, new in LEGACY_ENV_VARS.items()
+        if os.getenv(old) not in (None, "")
+    ]
+
+
 # --------------------------------------------------------------------------
 # Live-editable strategy / risk parameters (seed values only).
 # Each entry: key -> (default value, description). The type of the default

@@ -149,6 +149,24 @@ botun çalışıyor olması gerekir.
 Paper ve canlı pozisyonlar veritabanında `mode` sütunuyla ayrılır; yine de her mod için ayrı bir
 `DB_PATH` kullanmanız önerilir.
 
+## Önceki sürümden geçiş
+
+Bu sürüm, kısa süre main'de duran önceki bot sürümünün (PR #2) yerine geçer. O sürümü kurup
+çalıştırdıysanız:
+
+1. **`.env` dosyasını yeniden oluşturun:** `cp .env.example .env` ve değerleri tekrar girin. Değişken
+   adları değişti (ör. `EXCHANGE_API_KEY` → `API_KEY`, `EXCHANGE_SANDBOX` → `USE_TESTNET`,
+   `SYMBOL` → `SYMBOLS`). Eski adlar okunmaz; bot açılışta bunlar için uyarı yazar.
+2. **Eski veritabanı taşınamaz:** önceki sürüm `data/trading_bot.sqlite3` dosyasını kullanıyordu, şeması
+   farklıdır. Yeni sürüm varsayılan olarak `data/tradingbot.db` kullanır, yani ikisi çakışmaz. `DB_PATH`
+   eski dosyayı gösterirse bot açılmaz ve açıklayıcı bir hata verir. Eski dosyada sadece paper
+   verisi varsa silebilirsiniz: `rm data/trading_bot.sqlite3*`.
+3. **Canlı pozisyon açtıysanız:** önce o pozisyonları borsada (veya eski sürümle) kapatın. Yeni bot
+   eski veritabanındaki pozisyonları bilmez ve onları yönetmez.
+4. **Strateji/risk ayarları** artık `.env`'den okunmaz (`EMA_TREND_PERIOD`, `RSI_LOWER`, `RISK_PER_TRADE_PCT`...).
+   Dashboard'daki ayar panelinden veya `python main.py --set anahtar=değer` ile girin
+   (`python main.py --show-settings` tüm anahtarları listeler).
+
 ## Borsa değiştirme
 
 `.env` içinde `EXCHANGE_ID` herhangi bir ccxt borsa kimliği olabilir (`binance`, `bybit`, `okx`,

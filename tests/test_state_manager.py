@@ -1,7 +1,9 @@
 import pytest
 
 from config import DEFAULT_SETTINGS
-from state_manager import MIGRATIONS, StateManager
+import sqlite3
+
+from state_manager import MIGRATIONS, LegacyDatabaseError, StateManager
 
 
 @pytest.fixture
@@ -79,3 +81,19 @@ def test_commands_and_runtime_state(db):
     s.set_state("last_candle:BTC/USDT:1h", 123)
     assert s.get_state("last_candle:BTC/USDT:1h") == 123
     assert s.get_state("missing", "d") == "d"
+
+
+def test_refuses_database_from_earlier_version(db):
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    conn.execute("INSERT INTO meta VALUES ('schema_version', '2')")
+    conn.execute("CREATE TABLE positions (id INTEGER PRIMARY KEY, symbol TEXT, close_price REAL)")
+    conn.commit()
+    conn.close()
+    with pytest.raises(LegacyDatabaseError):
+        StateManager(db)
+    # the old file is left untouched
+    conn = sqlite3.connect(db)
+    assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert "schema_version" not in tables and "settings" not in tables

@@ -154,6 +154,10 @@ POSITION_FIELDS = (
 )
 
 
+class LegacyDatabaseError(RuntimeError):
+    """The file is a database from the earlier version of the bot (different schema)."""
+
+
 class StateManager:
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -164,13 +168,23 @@ class StateManager:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.execute("PRAGMA busy_timeout = 10000")
+        self._run_migrations()  # refuses an old-version DB before anything is written to it
         if db_path != ":memory:":
             self._conn.execute("PRAGMA journal_mode = WAL")  # bot + dashboard read/write concurrently
-        self._run_migrations()
 
     # ---------------------------------------------------------- infrastructure
     def _run_migrations(self) -> None:
         with self._lock:
+            tables = {r[0] for r in self._conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            if "meta" in tables and "schema_version" not in tables:
+                # Earlier version of the bot (schema tracked in a `meta` table); its
+                # positions/trades columns differ, so migrating in place would corrupt it.
+                self._conn.close()
+                raise LegacyDatabaseError(
+                    f"{self.db_path} was created by the earlier version of the bot and uses a different schema. "
+                    "Point DB_PATH at a new file (default data/tradingbot.db) or move the old file away. "
+                    "See README: 'Önceki sürümden geçiş'."
+                )
             self._conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
             row = self._conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
             current = row["v"] or 0
