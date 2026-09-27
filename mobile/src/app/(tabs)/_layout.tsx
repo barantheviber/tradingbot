@@ -11,8 +11,8 @@ function icon(glyph: string) {
 }
 
 export default function TabsLayout() {
-  const { connection } = useConnection();
-  if (!connection) return <Redirect href="/connect" />;
+  const { connection, local } = useConnection();
+  if (!connection) return <Redirect href={local ? '/setup' : '/connect'} />;
 
   return (
     <LiveProvider connection={connection}>
@@ -21,8 +21,8 @@ export default function TabsLayout() {
           tabBarActiveTintColor: colors.accent,
           tabBarInactiveTintColor: colors.muted,
           headerRight: () => (
-            <Link href="/connect" style={{ color: colors.accent, marginRight: 12 }}>
-              Bağlantı
+            <Link href={local ? '/setup' : '/connect'} style={{ color: colors.accent, marginRight: 12 }}>
+              {local ? 'Kurulum' : 'Bağlantı'}
             </Link>
           ),
         }}

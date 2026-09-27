@@ -2,8 +2,10 @@
 // Electron's main process and the renderer.
 
 import type { SettingValue, WsMessage } from "./apiTypes";
+import type { LocalBotState, LocalSetup } from "./localBot";
 
 export * from "./apiTypes";
+export * from "./localBot";
 
 /** Live messages the main process forwards to the renderer (pings stay in main). */
 export type WsEvent = Exclude<WsMessage, { type: "ping" }>;
@@ -46,4 +48,13 @@ export interface DesktopBridge {
   getWsState(): Promise<WsState>;
   onEvent(listener: (event: WsEvent) => void): () => void;
   onWsState(listener: (state: WsState) => void): () => void;
+  /** The bot this app runs on this computer. */
+  localBot: {
+    getState(): Promise<LocalBotState>;
+    getSetup(): Promise<LocalSetup | null>;
+    saveSetup(setup: LocalSetup): Promise<LocalBotState>;
+    start(): Promise<LocalBotState>;
+    stop(): Promise<LocalBotState>;
+    onState(listener: (state: LocalBotState) => void): () => void;
+  };
 }

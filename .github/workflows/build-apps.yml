@@ -1,0 +1,165 @@
+name: Build apps
+
+# Builds the Windows installer (.exe) and the Android app (.apk).
+# - On pull requests that touch the apps: builds both and keeps them as workflow artifacts.
+# - "Run workflow" on the Actions tab (workflow_dispatch): builds both and publishes a GitHub
+#   Release with the two files attached, so they can be downloaded and installed directly.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for the release (e.g. 0.1.0)"
+        required: true
+        default: "0.1.0"
+  pull_request:
+    paths:
+      - "packaging/**"
+      - "desktop/**"
+      - "mobile/**"
+      - "api/**"
+      - "execution/**"
+      - "*.py"
+      - "requirements.txt"
+      - ".github/workflows/build-apps.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-apps-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERSION: ${{ inputs.version || '0.0.0-dev' }}
+
+jobs:
+  # The phone runs the bot with a smaller, Android-compatible package set
+  # (packaging/android/requirements-android.txt). Run the tests against exactly that set.
+  android-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the Android package set
+        run: |
+          python -m pip install --upgrade pip
+          pip install --no-deps -r packaging/android/requirements-android.txt
+          pip install pytest "httpx<0.28"
+      - name: Tests
+        # Starlette 0.27's TestClient hangs on this test's rejected WebSocket; the endpoint itself works
+        # with uvicorn + wsproto (covered by the desktop tests and the default CI job).
+        run: python -m pytest -q --deselect tests/test_api.py::test_websocket_auth_and_updates
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r packaging/requirements-build.txt
+      - name: Bundle the bot and API (PyInstaller)
+        run: pyinstaller --noconfirm --distpath desktop/build-core --workpath build/pyinstaller packaging/tradingbot-core.spec
+      - name: Smoke test the bundle
+        run: desktop/build-core/tradingbot-core/tradingbot-core.exe version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Build the installer
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npm ci
+          npm version "$env:VERSION" --no-git-tag-version --allow-same-version
+          npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: desktop/release/*.exe
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      # Chaquopy compiles the bundled Python with the same version on the build machine.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Generate the Android project
+        working-directory: mobile
+        run: |
+          npm ci
+          npx expo prebuild --platform android --no-install
+      - name: Signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            {
+              echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore"
+              echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
+              echo "ANDROID_KEY_PASSWORD=$KEYSTORE_PASSWORD"
+            } >> "$GITHUB_ENV"
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set: the APK is signed with the public debug key."
+          fi
+      - name: Build the APK
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,x86_64
+      - name: Name the APK
+        run: |
+          mkdir -p out
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk "out/TradingBot-$VERSION.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: out/*.apk
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [android-python, windows, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: files
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: Trading Bot ${{ env.VERSION }}
+          files: files/*
+          body: |
+            **Windows:** `TradingBot-Setup-${{ env.VERSION }}.exe` dosyasını indirip çalıştırın. Windows "bilinmeyen yayıncı" uyarısı gösterirse "Ek bilgi" > "Yine de çalıştır" deyin (uygulama imzalı değil).
+            **Android:** `TradingBot-${{ env.VERSION }}.apk` dosyasını telefona indirip açın; "bilinmeyen kaynaklardan yükleme" izni isterse verin.
+
+            Bot her iki cihazda da o cihazın içinde ve paper trading modunda çalışır. İki cihaz birbirinin pozisyonlarını bilmez: cihaz değiştirmeden önce açık pozisyonları kapatıp botu durdurun.
+
+            Bu yazılım kâr garantisi vermez ve yatırım tavsiyesi değildir.
