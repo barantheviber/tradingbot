@@ -68,6 +68,7 @@ button.danger:hover:not(:disabled) { background: #4a1f1f; }
 
 .form { display: flex; flex-direction: column; gap: 12px; margin: 12px 0; }
 .form label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+.form label.switch { flex-direction: row; color: var(--text); }
 .row { display: flex; gap: 8px; }
 
 .pos { color: var(--pos); }

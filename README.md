@@ -47,7 +47,10 @@ diğeri bilmez. Bu yüzden:
   `4h` zaman diliminde bu, 4 saatlik mum kapandığında demektir; saatlerce hiç işlem olmaması normaldir.
   **Loglar** sekmesinde ne yaptığını görebilirsiniz.
 - *"Borsaya bağlanmaya çalışıyor" yazıyor.* İnternet bağlantısını kontrol edin; bot kendiliğinden tekrar dener.
-- *Güncelleme nasıl yapılır?* Yeni sürümü Releases sayfasından indirip kurun. Ayarlarınız ve geçmişiniz korunur.
+- *Telefon ya da bilgisayar yeniden başlarsa?* Telefonda bot çalışıyorduysa telefon açılınca kendiliğinden
+  devam eder. Bilgisayarda kurulumdaki **Bilgisayar açılınca uygulamayı başlat** seçiliyse uygulama açılır ve
+  bot kaldığı yerden devam eder. **Durdur** ile durdurduğunuz bot kendiliğinden başlamaz.
+- *Güncelleme nasıl yapılır?* Yeni sürümü Releases sayfasından indirip kurun. Ayarlarınız ve geçmişiniz korunur. Telefonda çalışan bot güncellemeden sonra kendiliğinden devam eder.
 
 ## Mimari
 

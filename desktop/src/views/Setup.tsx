@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { LocalSetup, MarketType } from "../../shared/types";
 import { DEFAULT_SETUP, EXCHANGES, parseSymbols, TIMEFRAMES, timeframeLabel, validateSetup } from "../../shared/types";
 
@@ -19,6 +19,19 @@ export default function Setup({ initial, firstRun, botRunning, onSaved }: Props)
   const [problems, setProblems] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [loginSupported, setLoginSupported] = useState(false);
+  // On first setup the box starts ticked: a bot at home should come back after a Windows restart.
+  const [openAtLogin, setOpenAtLogin] = useState(firstRun);
+
+  useEffect(() => {
+    void window.desktop.localBot
+      .getOpenAtLogin()
+      .then((r) => {
+        setLoginSupported(r.supported);
+        if (!firstRun) setOpenAtLogin(r.enabled);
+      })
+      .catch(() => setLoginSupported(false));
+  }, [firstRun]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -36,6 +49,7 @@ export default function Setup({ initial, firstRun, botRunning, onSaved }: Props)
     setBusy(true);
     try {
       await window.desktop.localBot.saveSetup(setup);
+      if (loginSupported) await window.desktop.localBot.setOpenAtLogin(openAtLogin);
       setSaved(true);
       onSaved();
     } catch (err) {
@@ -89,6 +103,14 @@ export default function Setup({ initial, firstRun, botRunning, onSaved }: Props)
           Sanal başlangıç bakiyesi (USDT)
           <input className="num-input" value={balance} onChange={(e) => setBalance(e.target.value)} inputMode="decimal" />
         </label>
+        {loginSupported && (
+          <label className="switch">
+            <input type="checkbox" checked={openAtLogin} onChange={(e) => setOpenAtLogin(e.target.checked)} />
+            <span>
+              Bilgisayar açılınca uygulamayı başlat <span className="small">(bot çalışıyorduysa kaldığı yerden devam eder)</span>
+            </span>
+          </label>
+        )}
         <div className="row">
           <button type="submit" className="primary" disabled={busy}>
             {firstRun ? "Kaydet ve botu başlat" : botRunning ? "Kaydet ve botu yeniden başlat" : "Kaydet"}

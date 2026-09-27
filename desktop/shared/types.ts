@@ -57,5 +57,8 @@ export interface DesktopBridge {
     stop(): Promise<LocalBotState>;
     onState(listener: (state: LocalBotState) => void): () => void;
     openLogFolder(): Promise<void>;
+    /** Open the app when Windows starts (installed app only; supported is false in development). */
+    getOpenAtLogin(): Promise<{ supported: boolean; enabled: boolean }>;
+    setOpenAtLogin(enabled: boolean): Promise<void>;
   };
 }
