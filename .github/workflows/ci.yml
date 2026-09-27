@@ -34,3 +34,6 @@ jobs:
             exit 0
           fi
           exit $status
+
+      - name: Backtest smoke test (offline, synthetic data)
+        run: python backtest.py --synthetic 3000 --set min_confirmations=2

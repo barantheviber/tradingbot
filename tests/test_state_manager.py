@@ -1,116 +1,99 @@
-import sqlite3
-import tempfile
-from pathlib import Path
-
 import pytest
 
-from state_manager import Position, StateManager, TradeRecord
+from config import DEFAULT_SETTINGS
+import sqlite3
+
+from state_manager import MIGRATIONS, LegacyDatabaseError, StateManager
 
 
 @pytest.fixture
-def state(tmp_path) -> StateManager:
-    db_path = tmp_path / "test.sqlite3"
-    sm = StateManager(db_path)
-    yield sm
-    sm.close()
+def db(tmp_path):
+    return str(tmp_path / "state.db")
 
 
-class TestMigrations:
-    def test_schema_version_recorded(self, state: StateManager):
-        conn = sqlite3.connect(state.db_path)
-        row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
-        conn.close()
-        assert row is not None
-        assert int(row[0]) == len(state._migrations)
-
-    def test_migration_is_idempotent(self, tmp_path):
-        db_path = tmp_path / "idempotent.sqlite3"
-        sm1 = StateManager(db_path)
-        sm1.set_setting("foo", "bar")
-        sm1.close()
-
-        # Re-opening should not error and should not wipe data.
-        sm2 = StateManager(db_path)
-        assert sm2.get_setting("foo") == "bar"
-        sm2.close()
-
-    def test_positions_table_has_meta_column(self, state: StateManager):
-        conn = sqlite3.connect(state.db_path)
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(positions)")}
-        conn.close()
-        assert "meta" in cols
+def test_migrations_run_once_and_are_idempotent(db):
+    s1 = StateManager(db)
+    assert s1.schema_version() == MIGRATIONS[-1][0]
+    s1.close()
+    s2 = StateManager(db)  # re-open: no error, same version, single row per version
+    rows = s2._query("SELECT version FROM schema_version")
+    assert [r["version"] for r in rows] == [v for v, _ in MIGRATIONS]
 
 
-class TestSettings:
-    def test_set_and_get_setting_roundtrip(self, state: StateManager):
-        state.set_setting("risk_per_trade_pct", 1.5)
-        assert state.get_setting("risk_per_trade_pct") == 1.5
-
-    def test_get_setting_missing_key_returns_default(self, state: StateManager):
-        assert state.get_setting("does_not_exist", "fallback") == "fallback"
-
-    def test_seed_default_settings_does_not_overwrite_existing(self, state: StateManager):
-        state.set_setting("risk_reward_ratio", 3.0)
-        state.seed_default_settings({"risk_reward_ratio": 2.0, "atr_period": 14})
-        assert state.get_setting("risk_reward_ratio") == 3.0
-        assert state.get_setting("atr_period") == 14
+def test_seed_keeps_user_edits(db):
+    s = StateManager(db)
+    s.seed_default_settings(DEFAULT_SETTINGS)
+    s.set_setting("risk_per_trade_pct", "0.5")
+    s.seed_default_settings(DEFAULT_SETTINGS)
+    assert s.get_setting("risk_per_trade_pct") == 0.5
+    assert s.get_all_settings()["ema_trend_period"] == 200
 
 
-class TestPositions:
-    def test_open_and_close_position(self, state: StateManager):
-        pos = Position(
-            id=None,
-            symbol="BTC/USDT",
-            side="long",
-            entry_price=100.0,
-            quantity=1.0,
-            stop_loss=90.0,
-            take_profit=120.0,
-            opened_at="2024-01-01T00:00:00+00:00",
-        )
-        pos_id = state.open_position(pos)
-        open_positions = state.get_open_positions("BTC/USDT")
-        assert len(open_positions) == 1
-        assert open_positions[0].id == pos_id
-
-        state.close_position(pos_id, close_price=110.0, realized_pnl=10.0)
-        assert state.get_open_positions("BTC/USDT") == []
-        closed = state.get_position(pos_id)
-        assert closed.status == "closed"
-        assert closed.realized_pnl == 10.0
-
-    def test_update_position_stop(self, state: StateManager):
-        pos = Position(
-            id=None,
-            symbol="ETH/USDT",
-            side="long",
-            entry_price=50.0,
-            quantity=2.0,
-            stop_loss=45.0,
-            take_profit=60.0,
-            opened_at="2024-01-01T00:00:00+00:00",
-        )
-        pos_id = state.open_position(pos)
-        state.update_position_stop(pos_id, 48.0)
-        updated = state.get_position(pos_id)
-        assert updated.stop_loss == 48.0
+def test_set_setting_type_coercion(db):
+    s = StateManager(db)
+    s.seed_default_settings(DEFAULT_SETTINGS)
+    assert s.set_setting("max_open_positions", "4") == 4
+    assert s.set_setting("trailing_enabled", "false") is False
+    assert s.set_setting("volume_factor", 2) == 2.0 and isinstance(s.get_setting("volume_factor"), float)
+    with pytest.raises(ValueError):
+        s.set_setting("max_open_positions", "2.5")
+    with pytest.raises(ValueError):
+        s.set_setting("trailing_enabled", "maybe")
 
 
-class TestTrades:
-    def test_record_and_fetch_trade_history(self, state: StateManager):
-        trade = TradeRecord(
-            id=None,
-            symbol="BTC/USDT",
-            side="long",
-            entry_price=100.0,
-            exit_price=110.0,
-            quantity=1.0,
-            pnl=10.0,
-            opened_at="2024-01-01T00:00:00+00:00",
-            closed_at="2024-01-01T01:00:00+00:00",
-            reason="take_profit",
-        )
-        state.record_trade(trade)
-        history = state.get_trade_history()
-        assert len(history) == 1
-        assert history[0].pnl == 10.0
+def test_positions_survive_restart(db):
+    s = StateManager(db)
+    pid = s.open_position(symbol="BTC/USDT", side="long", quantity=0.1, entry_price=100, stop_loss=95,
+                          take_profit=110, atr_at_entry=2.5, mode="paper")
+    s.close()
+    restored = StateManager(db).get_open_positions(mode="paper")
+    assert len(restored) == 1
+    p = restored[0]
+    assert p["id"] == pid and p["initial_stop"] == 95 and p["highest_price"] == 100
+    assert StateManager(db).get_open_positions(mode="live") == []
+
+
+def test_close_position_and_realized_pnl(db):
+    s = StateManager(db)
+    pid = s.open_position(symbol="X/USDT", side="long", quantity=1, entry_price=100, stop_loss=95,
+                          take_profit=110, mode="paper", fees=0.1)
+    assert s.open_fees("paper") == pytest.approx(0.1)
+    s.mark_position_closed(pid, exit_price=110, pnl=9.8, fees=0.2, reason="take_profit")
+    assert s.get_open_positions() == []
+    assert s.realized_pnl("paper") == pytest.approx(9.8)
+    assert s.get_closed_positions()[0]["exit_reason"] == "take_profit"
+
+
+def test_day_start_equity_is_fixed_per_utc_day(db):
+    s = StateManager(db)
+    assert s.get_or_create_day_start_equity("paper", 1000, date="2026-01-01") == 1000
+    assert s.get_or_create_day_start_equity("paper", 900, date="2026-01-01") == 1000
+    assert s.get_or_create_day_start_equity("paper", 900, date="2026-01-02") == 900  # new UTC day resets
+
+
+def test_commands_and_runtime_state(db):
+    s = StateManager(db)
+    cid = s.enqueue_command("close_position", {"position_id": 3})
+    pending = s.get_pending_commands()
+    assert pending[0]["id"] == cid and pending[0]["payload"] == {"position_id": 3}
+    s.complete_command(cid, "done", "ok")
+    assert s.get_pending_commands() == []
+    s.set_state("last_candle:BTC/USDT:1h", 123)
+    assert s.get_state("last_candle:BTC/USDT:1h") == 123
+    assert s.get_state("missing", "d") == "d"
+
+
+def test_refuses_database_from_earlier_version(db):
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    conn.execute("INSERT INTO meta VALUES ('schema_version', '2')")
+    conn.execute("CREATE TABLE positions (id INTEGER PRIMARY KEY, symbol TEXT, close_price REAL)")
+    conn.commit()
+    conn.close()
+    with pytest.raises(LegacyDatabaseError):
+        StateManager(db)
+    # the old file is left untouched
+    conn = sqlite3.connect(db)
+    assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert "schema_version" not in tables and "settings" not in tables

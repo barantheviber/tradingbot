@@ -1,63 +1,44 @@
+"""Simulated execution: fills at the reference price +/- slippage, charges a fee.
+
+Account balance is derived from the database (starting balance + realised
+PnL - fees of open positions), so it survives restarts with no extra state.
 """
-Simulated execution: no real orders are ever sent. Fills happen instantly
-at the requested price (optionally nudged by a configurable slippage bps
-value) and the account balance is tracked purely in memory / SQLite via
-state_manager, never on the exchange.
-"""
+
 from __future__ import annotations
 
-from execution.base import BaseExecutionClient, ExecutionResult
-from strategy import Side
+import uuid
+from typing import Mapping
+
+from execution.base import BaseExecutionClient, Fill
+from risk_manager import unrealized_pnl
 
 
 class PaperExecutionClient(BaseExecutionClient):
-    def __init__(self, starting_balance: float, slippage_bps: float = 2.0):
-        super().__init__(name="paper")
-        self._balance = starting_balance
-        self.slippage_bps = slippage_bps
+    mode = "paper"
 
-    def _apply_slippage(self, price: float, side: Side, closing: bool) -> float:
-        """
-        Slippage always works against the trader: entries fill slightly
-        worse, exits fill slightly worse.
-        """
-        factor = self.slippage_bps / 10_000.0
-        # Opening a long or closing a short means buying -> price nudges up.
-        buying = (side == Side.LONG and not closing) or (side == Side.SHORT and closing)
-        return price * (1 + factor) if buying else price * (1 - factor)
+    def __init__(self, state, exchange=None, starting_balance: float = 10_000.0, fee_rate: float = 0.001,
+                 slippage_bps: float = 5.0):
+        super().__init__(state, exchange)
+        self.starting_balance = starting_balance
+        self.fee_rate = fee_rate
+        self.slippage = slippage_bps / 10_000.0
 
-    def open_position(self, symbol: str, side: Side, quantity: float, price: float) -> ExecutionResult:
-        fill_price = self._apply_slippage(price, side, closing=False)
-        self.log_decision(
-            f"[PAPER] Opening {side.value} {quantity:.8f} {symbol} @ {fill_price:.8f}"
-        )
-        return ExecutionResult(
-            success=True,
-            filled_price=fill_price,
-            filled_quantity=quantity,
-            order_id=f"paper-{symbol}-{side.value}-{fill_price:.2f}",
-        )
+    def _submit_market_order(self, symbol: str, side: str, quantity: float, reference_price: float,
+                             reduce_only: bool = False) -> Fill:
+        price = reference_price * (1 + self.slippage) if side == "buy" else reference_price * (1 - self.slippage)
+        fee = price * quantity * self.fee_rate
+        return Fill(price=price, quantity=quantity, fee=fee, order_id=f"paper-{uuid.uuid4().hex[:12]}")
 
-    def close_position(self, symbol: str, side: Side, quantity: float, price: float) -> ExecutionResult:
-        fill_price = self._apply_slippage(price, side, closing=True)
-        self.log_decision(
-            f"[PAPER] Closing {side.value} {quantity:.8f} {symbol} @ {fill_price:.8f}"
-        )
-        return ExecutionResult(
-            success=True,
-            filled_price=fill_price,
-            filled_quantity=quantity,
-            order_id=f"paper-close-{symbol}-{side.value}-{fill_price:.2f}",
-        )
+    def _cash_base(self) -> float:
+        return self.starting_balance + self.state.realized_pnl(self.mode) - self.state.open_fees(self.mode)
 
-    def get_account_equity(self) -> float:
-        return self._balance
+    def get_equity(self, prices: Mapping[str, float]) -> float:
+        equity = self._cash_base()
+        for p in self.open_positions():
+            price = prices.get(p["symbol"], p["entry_price"])
+            equity += unrealized_pnl(p["side"], p["entry_price"], price, p["quantity"])
+        return equity
 
-    def apply_realized_pnl(self, pnl: float) -> None:
-        """Called by bot_engine after a position closes, to keep the paper
-        balance in sync with realized PnL."""
-        self._balance += pnl
-
-    def set_balance(self, balance: float) -> None:
-        """Used on startup to restore the last known paper balance."""
-        self._balance = balance
+    def get_available_cash(self, prices: Mapping[str, float]) -> float:
+        committed = sum(p["quantity"] * p["entry_price"] for p in self.open_positions())
+        return max(0.0, self._cash_base() - committed)
