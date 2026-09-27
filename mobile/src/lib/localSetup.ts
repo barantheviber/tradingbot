@@ -53,6 +53,38 @@ export function candleNote(tf: string | null): string {
     : 'Bot yalnızca mum kapandığında karar verir. Bu yüzden uzun süre hiç işlem olmaması normaldir.';
 }
 
+const UNIT_MS: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
+
+/**
+ * When the current candle closes, in ms. Exchange candles up to 1d start at whole multiples of their
+ * length since 1970-01-01 UTC, so the close is the next multiple. Null for anything else (e.g. 1w).
+ */
+export function nextCandleClose(tf: string, nowMs: number): number | null {
+  const m = /^(\d+)([mhd])$/.exec(tf);
+  if (!m) return null;
+  const len = Number(m[1]) * UNIT_MS[m[2]];
+  if (!(len > 0) || UNIT_MS.d % len !== 0) return null;
+  return (Math.floor(nowMs / len) + 1) * len;
+}
+
+/** 135 minutes -> "2 sa 15 dk". */
+export function durationText(ms: number): string {
+  const min = Math.max(1, Math.ceil(ms / 60_000));
+  if (min < 60) return `${min} dk`;
+  const h = Math.floor(min / 60);
+  const rest = min % 60;
+  return rest ? `${h} sa ${rest} dk` : `${h} sa`;
+}
+
+/** "Sonraki mum kapanışı 20:00 (2 sa 15 dk sonra)" in local time; the bot decides within a poll of it. */
+export function nextDecisionText(tf: string, nowMs: number): string | null {
+  const at = nextCandleClose(tf, nowMs);
+  if (at === null) return null;
+  const d = new Date(at);
+  const clock = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `Sonraki mum kapanışı ${clock} (${durationText(at - nowMs)} sonra)`;
+}
+
 export const DEFAULT_SETUP: LocalSetup = {
   exchangeId: 'binance',
   marketType: 'spot',
