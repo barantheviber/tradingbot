@@ -21,7 +21,7 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
-from config import DEFAULT_SETTINGS, legacy_env_warnings, load_config
+from config import DEFAULT_SETTINGS, ConfigError, legacy_env_warnings, load_config
 from logging_setup import setup_logging
 from state_manager import LegacyDatabaseError, StateManager
 
@@ -48,14 +48,17 @@ class LocalRuntime:
         if self.running:
             return
         self._error = None
-        config = load_config(self.env_file)
+        try:
+            config = load_config(self.env_file)
+        except ConfigError as exc:  # an unparsable value: the apps show it instead of retrying forever
+            raise RuntimeStartError(str(exc)) from exc
         self.log = log = setup_logging(config.log_dir, config.log_level, secrets=config.secrets())
         for warning in legacy_env_warnings():
             log.warning(f"Config: {warning}")
 
         problems = list(config.validate())
         if len(config.api_token) < MIN_TOKEN_LENGTH:
-            problems.append(f"API_TOKEN must be at least {MIN_TOKEN_LENGTH} characters")
+            problems.append(f"API_TOKEN en az {MIN_TOKEN_LENGTH} karakter olmalı")
         if problems:
             for p in problems:
                 log.error(f"Config error: {p}")
