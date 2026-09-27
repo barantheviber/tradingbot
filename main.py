@@ -31,6 +31,14 @@ def parse_args(argv=None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def build_engine(config, state: StateManager) -> BotEngine:
+    """Wire the engine from a loaded config (shared with local_runtime.py)."""
+    # Paper mode never gets API keys: public market data is all it needs.
+    exchange = ExchangeClient.from_config(config, public_only=config.paper_trading)
+    executor = build_execution_client(config, state, exchange)
+    return BotEngine(config, state, exchange, executor, RiskManager(state.get_all_settings))
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
     config = load_config(args.env_file)
@@ -69,10 +77,7 @@ def main(argv=None) -> int:
                     " (TESTNET)" if config.use_testnet else "")
         log.warning("=" * 70)
 
-    # Paper mode never gets API keys: public market data is all it needs.
-    exchange = ExchangeClient.from_config(config, public_only=config.paper_trading)
-    executor = build_execution_client(config, state, exchange)
-    engine = BotEngine(config, state, exchange, executor, RiskManager(state.get_all_settings))
+    engine = build_engine(config, state)
     engine.install_signal_handlers()
     try:
         engine.run(once=args.once)

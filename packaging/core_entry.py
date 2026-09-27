@@ -3,8 +3,9 @@
 The desktop app ships this as a PyInstaller build so the user needs no Python
 install. It starts two processes from the same executable:
 
-    tradingbot-core bot --data-dir <dir>   # the trading loop (python main.py)
-    tradingbot-core api --data-dir <dir>   # the HTTP API (python -m api)
+    tradingbot-core run --data-dir <dir>   # bot + API in one process (what the app uses)
+    tradingbot-core bot --data-dir <dir>   # the trading loop only (python main.py)
+    tradingbot-core api --data-dir <dir>   # the HTTP API only (python -m api)
     tradingbot-core generate-token         # print a random API token
     tradingbot-core version                # print versions as JSON (smoke test)
 
@@ -40,6 +41,33 @@ def _watch_stdin() -> None:
     threading.Thread(target=watch, name="stdin-watch", daemon=True).start()
 
 
+def _run_local(rest: List[str]) -> int:
+    from local_runtime import LocalRuntime, RuntimeStartError
+
+    parser = argparse.ArgumentParser(prog="tradingbot-core run")
+    parser.add_argument("--env-file", default=".env")
+    args = parser.parse_args(rest)
+
+    stop = threading.Event()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: stop.set())
+
+    runtime = LocalRuntime(args.env_file)
+    try:
+        runtime.start()
+    except RuntimeStartError as exc:
+        print(f"STARTUP_ERROR: {exc}", file=sys.stderr, flush=True)
+        return 2
+    while runtime.running and not stop.wait(0.5):
+        pass
+    runtime.stop()
+    status = runtime.status()
+    if status["error"]:
+        print(f"RUNTIME_ERROR: {status['error']}", file=sys.stderr, flush=True)
+        return 1
+    return 0
+
+
 def _version() -> int:
     import ccxt
 
@@ -57,7 +85,7 @@ def _version() -> int:
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="tradingbot-core")
-    parser.add_argument("command", choices=["bot", "api", "generate-token", "version"])
+    parser.add_argument("command", choices=["run", "bot", "api", "generate-token", "version"])
     parser.add_argument("--data-dir", help="working directory for .env, data/ and logs/")
     parser.add_argument("--stop-on-stdin-close", action="store_true")
     args, rest = parser.parse_known_args(argv)
@@ -77,6 +105,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.stop_on_stdin_close:
         _watch_stdin()
 
+    if args.command == "run":
+        return _run_local(rest)
     if args.command == "bot":
         import main as bot_main
 
