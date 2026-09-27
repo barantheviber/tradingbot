@@ -410,6 +410,9 @@ class StateManager:
             (key, json.dumps(value, default=str), utc_now_iso()),
         )
 
+    def delete_state(self, key: str) -> None:
+        self._execute("DELETE FROM runtime_state WHERE key = ?", (key,))
+
     def get_state(self, key: str, default: Any = None) -> Any:
         row = self._query_one("SELECT value FROM runtime_state WHERE key = ?", (key,))
         return json.loads(row["value"]) if row else default

@@ -23,6 +23,11 @@ class Fill:
     quantity: float
     fee: float
     order_id: Optional[str] = None
+    requested: Optional[float] = None  # amount asked for; None = the whole position
+
+
+# Relative tolerance when comparing a filled amount with the requested one.
+FILL_TOLERANCE = 1e-6
 
 
 def check_market_limits(limits: Mapping[str, Any], quantity: float, price: float) -> Tuple[bool, str]:
@@ -69,6 +74,27 @@ class BaseExecutionClient(ABC):
     def reconcile(self, positions: List[Dict[str, Any]]) -> None:
         """Hook to compare restored positions with the exchange (live only)."""
 
+    # Exchange-side protective stops (live only; no-ops for paper).
+    def protect_position(self, position: Mapping[str, Any]) -> None:
+        """Place (or re-place) a resting stop order for ``position`` on the exchange."""
+
+    def on_stop_moved(self, position: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+        """The position's stop in state changed (trailing). Returns the closed
+        position if the old exchange stop turned out to have filled already."""
+        return None
+
+    def sync_protective_stops(self) -> None:
+        """Record positions whose exchange stop filled; re-place missing stops."""
+
+    def _release_protective_stop(self, position: Mapping[str, Any]) -> Optional[Fill]:
+        """Cancel the resting stop before the bot closes the position itself.
+        Returns the stop's fill if it had already executed (position is gone)."""
+        return None
+
+    # Positions whose close order did not fill completely; the engine retries them.
+    def pending_close_reason(self, position: Mapping[str, Any]) -> Optional[str]:
+        return self.state.get_state(f"pending_close:{position['id']}")
+
     # ------------------------------------------------------------- shared
     def open_positions(self) -> List[Dict[str, Any]]:
         return self.state.get_open_positions(mode=self.mode)
@@ -96,6 +122,10 @@ class BaseExecutionClient(ABC):
             return None
 
         fill = self._submit_market_order(symbol, "buy" if side == "long" else "sell", qty, reference_price)
+        if fill.quantity <= 0:
+            self._decision("WARNING", symbol, "Entry order did not fill; no position opened",
+                           {"order_id": fill.order_id})
+            return None
         # keep the planned stop/target distances relative to the actual fill price
         shift = fill.price - reference_price
         stop = stop_loss + shift
@@ -112,26 +142,75 @@ class BaseExecutionClient(ABC):
         self._trade_log("OPEN", symbol, {"position_id": position_id, "side": side, "qty": fill.quantity,
                                          "price": fill.price, "stop": stop, "take_profit": target,
                                          "fee": fill.fee, "reason": reason})
-        return self.state.get_position(position_id)
+        position = self.state.get_position(position_id)
+        self.protect_position(position)
+        return position
 
     def close_position(self, position: Mapping[str, Any], reference_price: float,
                        reason: str) -> Optional[Dict[str, Any]]:
+        stop_fill = self._release_protective_stop(position)
+        if stop_fill is not None:  # the exchange stop already closed it
+            return self._record_close(position, stop_fill, "exchange_stop")
         side = position["side"]
         fill = self._submit_market_order(position["symbol"], "sell" if side == "long" else "buy",
                                          float(position["quantity"]), reference_price, reduce_only=True)
-        gross = unrealized_pnl(side, float(position["entry_price"]), fill.price, fill.quantity)
+        return self._record_close(position, fill, reason)
+
+    def _record_close(self, position: Mapping[str, Any], fill: Fill, reason: str) -> Optional[Dict[str, Any]]:
+        """Book a (possibly partial) exit fill.
+
+        The position is only marked closed when the whole requested amount
+        filled. Otherwise the remainder stays open under stop management, the
+        exit is remembered as pending so the engine retries it, and the realised
+        part is carried in runtime state until the final close.
+        """
+        pid, symbol, side = position["id"], position["symbol"], position["side"]
+        quantity = float(position["quantity"])
+        requested = quantity if fill.requested is None else float(fill.requested)
+        remaining = max(0.0, requested - fill.quantity)
+        if remaining > requested * FILL_TOLERANCE:
+            remaining_n = self.normalize_quantity(symbol, remaining)
+            ok, _ = self.check_order_limits(symbol, remaining_n, fill.price or float(position["entry_price"]))
+            if not ok:  # below the exchange minimum: nothing more can be sold, treat as dust
+                self._decision("WARNING", symbol, f"#{pid}: unfilled remainder {remaining} is below exchange "
+                                                  "minimums; closing the position in the books")
+                remaining = 0.0
+        else:
+            remaining = 0.0
+
+        gross_key, pending_key = f"partial_gross:{pid}", f"pending_close:{pid}"
+        carried = float(self.state.get_state(gross_key, 0.0) or 0.0)
+        gross = carried + unrealized_pnl(side, float(position["entry_price"]), fill.price, fill.quantity)
         total_fees = float(position.get("fees") or 0.0) + fill.fee
+        exit_side = "sell" if side == "long" else "buy"
+
+        if remaining > 0:
+            self.state.update_position(pid, quantity=remaining, fees=total_fees)
+            self.state.set_state(gross_key, gross)
+            self.state.set_state(pending_key, reason)
+            if fill.quantity > 0:
+                self.state.record_trade(position_id=pid, symbol=symbol, side=exit_side, action="close",
+                                        quantity=fill.quantity, price=fill.price, fee=fill.fee,
+                                        reason=f"{reason} (partial)", mode=self.mode, order_id=fill.order_id)
+            self._decision("WARNING", symbol, f"#{pid}: exit filled {fill.quantity} of {requested}; "
+                                              f"{remaining} stays open and will be closed on the next attempt",
+                           {"position_id": pid, "filled": fill.quantity, "remaining": remaining})
+            updated = self.state.get_position(pid)
+            self.protect_position(updated)
+            return updated
+
         net = gross - total_fees
-        self.state.mark_position_closed(position["id"], exit_price=fill.price, pnl=net, fees=total_fees,
+        self.state.mark_position_closed(pid, exit_price=fill.price, pnl=net, fees=total_fees,
                                         reason=reason, exit_order_id=fill.order_id)
-        self.state.record_trade(position_id=position["id"], symbol=position["symbol"],
-                                side="sell" if side == "long" else "buy", action="close", quantity=fill.quantity,
-                                price=fill.price, fee=fill.fee, pnl=net, reason=reason, mode=self.mode,
-                                order_id=fill.order_id)
-        self._trade_log("CLOSE", position["symbol"], {"position_id": position["id"], "side": side,
-                                                      "qty": fill.quantity, "price": fill.price, "pnl": round(net, 8),
-                                                      "fees": total_fees, "reason": reason})
-        return self.state.get_position(position["id"])
+        self.state.record_trade(position_id=pid, symbol=symbol, side=exit_side, action="close",
+                                quantity=fill.quantity, price=fill.price, fee=fill.fee, pnl=net, reason=reason,
+                                mode=self.mode, order_id=fill.order_id)
+        for key in (gross_key, pending_key, f"stop_order:{pid}", f"stop_retry_after:{pid}"):
+            self.state.delete_state(key)
+        self._trade_log("CLOSE", symbol, {"position_id": pid, "side": side, "qty": fill.quantity,
+                                          "price": fill.price, "pnl": round(net, 8), "fees": total_fees,
+                                          "reason": reason})
+        return self.state.get_position(pid)
 
     def performance_summary(self, starting_equity: float = 0.0) -> Dict[str, Any]:
         return compute_performance(self.state.get_closed_positions(mode=self.mode, limit=100000), starting_equity)
