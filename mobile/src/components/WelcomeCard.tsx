@@ -2,6 +2,7 @@ import * as SecureStore from 'expo-secure-store';
 import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 
+import { candleNote } from '../lib/localSetup';
 import { Button, Card, styles } from './ui';
 
 const KEY = 'tradingbot.welcomeDismissed';
@@ -24,7 +25,7 @@ export function WelcomeCard({ timeframe }: { timeframe: string | null }) {
   };
 
   const lines = [
-    `Bot yalnızca kapanmış mumlarda karar verir. ${timeframe ?? 'Seçtiğiniz'} zaman diliminde ilk kararın gelmesi bir mum süresi kadar sürebilir; bu sırada ekranın sakin olması normaldir.`,
+    candleNote(timeframe),
     'Her şey paper trading (sanal bakiye) ile olur, gerçek emir gönderilmez.',
     'Bot çalışırken bildirim çubuğunda "Trading bot çalışıyor" bildirimi durur. Uygulamayı kapatsanız da bot çalışmaya devam eder.',
     'Pil ayarını "Kısıtlanmamış" yapın; yoksa Android botu arka planda durdurabilir.',

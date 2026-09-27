@@ -56,5 +56,6 @@ export interface DesktopBridge {
     start(): Promise<LocalBotState>;
     stop(): Promise<LocalBotState>;
     onState(listener: (state: LocalBotState) => void): () => void;
+    openLogFolder(): Promise<void>;
   };
 }

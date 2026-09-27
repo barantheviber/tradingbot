@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { candleNote } from "../../shared/types";
 
 const KEY = "tradingbot.welcomeDismissed";
 
@@ -32,10 +33,7 @@ export default function WelcomeCard({ timeframe }: { timeframe: string | null })
         <button onClick={close}>Anladım</button>
       </div>
       <ul>
-        <li>
-          Bot yalnızca <b>kapanmış mumlarda</b> karar verir. {timeframe ? `${timeframe} zaman diliminde` : "Seçtiğiniz zaman diliminde"}{" "}
-          ilk kararın gelmesi bir mum süresi kadar sürebilir; bu sırada ekranın sakin olması normaldir.
-        </li>
+        <li>{candleNote(timeframe)}</li>
         <li>
           Her şey <b>paper trading</b> (sanal bakiye) ile olur, gerçek emir gönderilmez.
         </li>

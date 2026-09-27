@@ -106,6 +106,10 @@ jobs:
           cache-dependency-path: mobile/package-lock.json
       - name: Generate the Android project
         working-directory: mobile
+        env:
+          APP_VERSION: ${{ env.VERSION }}
+          # grows with every run, so a newer APK always installs over an older one
+          APP_VERSION_CODE: ${{ github.run_number }}
         run: |
           npm ci
           npx expo prebuild --platform android --no-install
@@ -150,6 +154,9 @@ jobs:
         with:
           path: files
           merge-multiple: true
+      - name: Checksums
+        working-directory: files
+        run: sha256sum * > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { LocalSetup, MarketType } from "../../shared/types";
-import { DEFAULT_SETUP, EXCHANGES, parseSymbols, TIMEFRAMES, validateSetup } from "../../shared/types";
+import { DEFAULT_SETUP, EXCHANGES, parseSymbols, TIMEFRAMES, timeframeLabel, validateSetup } from "../../shared/types";
 
 interface Props {
   initial: LocalSetup | null;
@@ -79,7 +79,9 @@ export default function Setup({ initial, firstRun, botRunning, onSaved }: Props)
           Zaman dilimi
           <select value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
             {TIMEFRAMES.map((t) => (
-              <option key={t}>{t}</option>
+              <option key={t} value={t}>
+                {timeframeLabel(t)}
+              </option>
             ))}
           </select>
         </label>

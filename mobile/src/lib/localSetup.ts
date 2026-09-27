@@ -27,11 +27,37 @@ export const EXCHANGES: { id: string; label: string }[] = [
 
 export const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];
 
+/** Preset and marked "önerilen": in the real-data backtests short timeframes lose more to fees. */
+export const RECOMMENDED_TIMEFRAME = '4h';
+
+const CANDLE_TR: Record<string, string> = {
+  '1m': '1 dakikalık',
+  '5m': '5 dakikalık',
+  '15m': '15 dakikalık',
+  '30m': '30 dakikalık',
+  '1h': '1 saatlik',
+  '4h': '4 saatlik',
+  '1d': 'günlük',
+};
+
+/** "4h" -> "4h (önerilen)" for the setup picker. */
+export function timeframeLabel(tf: string): string {
+  return tf === RECOMMENDED_TIMEFRAME ? `${tf} (önerilen)` : tf;
+}
+
+/** First-run line on how often the bot decides, e.g. for "4h": only when a 4-hour candle closes. */
+export function candleNote(tf: string | null): string {
+  const candle = (tf && CANDLE_TR[tf]) || null;
+  return candle
+    ? `Bot yalnızca ${candle} mum kapandığında karar verir. Bu yüzden saatlerce hiç işlem olmaması normaldir.`
+    : 'Bot yalnızca mum kapandığında karar verir. Bu yüzden uzun süre hiç işlem olmaması normaldir.';
+}
+
 export const DEFAULT_SETUP: LocalSetup = {
   exchangeId: 'binance',
   marketType: 'spot',
   symbols: ['BTC/USDT', 'ETH/USDT'],
-  timeframe: '1h',
+  timeframe: RECOMMENDED_TIMEFRAME,
   startingBalance: 10000,
 };
 
