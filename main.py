@@ -1,62 +1,79 @@
+"""Entry point.
+
+    python main.py                 # run the bot (paper mode unless configured otherwise)
+    python main.py --once          # a single loop, then exit (smoke test)
+    python main.py --show-settings # print live-editable settings from the DB
+    python main.py --set risk_per_trade_pct=0.5 --set max_open_positions=2
 """
-Entry point. Wires config -> exchange_client -> state_manager ->
-execution client (paper or live, based on PAPER_TRADING) -> bot_engine,
-then runs the loop until SIGINT/SIGTERM.
-"""
+
 from __future__ import annotations
 
-import logging
+import argparse
+import json
+import sys
 
-from bot_engine import BotEngine, setup_logging
-from config import config
+from bot_engine import BotEngine
+from config import DEFAULT_SETTINGS, load_config
 from exchange_client import ExchangeClient
-from execution.live import LiveExecutionClient
-from execution.paper import PaperExecutionClient
+from execution import build_execution_client
+from logging_setup import setup_logging
+from risk_manager import RiskManager
 from state_manager import StateManager
 
-logger = logging.getLogger(__name__)
+
+def parse_args(argv=None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Modular ccxt trading bot")
+    parser.add_argument("--env-file", default=".env", help="Path to the .env file (default: .env)")
+    parser.add_argument("--once", action="store_true", help="Run a single loop and exit")
+    parser.add_argument("--show-settings", action="store_true", help="Print strategy/risk settings and exit")
+    parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                        help="Update a live setting in the DB and exit (repeatable)")
+    return parser.parse_args(argv)
 
 
-def build_execution_client(cfg, exchange_client: ExchangeClient, state: StateManager):
-    if cfg.paper_trading:
-        starting_balance = state.get_setting(
-            "paper_balance", cfg.account.paper_starting_balance
-        )
-        client = PaperExecutionClient(starting_balance=starting_balance)
-        return client
-    return LiveExecutionClient(exchange_client, quote_currency=cfg.account.quote_currency)
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    config = load_config(args.env_file)
+    log = setup_logging(config.log_dir, config.log_level, secrets=config.secrets())
 
+    state = StateManager(config.db_path)
+    state.seed_default_settings(DEFAULT_SETTINGS)
 
-def main() -> None:
-    config.validate()
-    setup_logging(config)
+    if args.show_settings or args.set:
+        for item in args.set:
+            key, _, value = item.partition("=")
+            if key not in DEFAULT_SETTINGS:
+                log.error(f"Unknown setting: {key}")
+                return 2
+            state.set_setting(key.strip(), value.strip())
+        print(json.dumps(state.get_all_settings(), indent=2, ensure_ascii=False))
+        return 0
 
-    logger.info(
-        "Booting trading bot | exchange=%s symbol=%s timeframe=%s paper_trading=%s",
-        config.exchange.exchange_id,
-        config.trading.symbol,
-        config.trading.timeframe,
-        config.paper_trading,
-    )
+    problems = config.validate()
+    if problems:
+        for p in problems:
+            log.error(f"Config error: {p}")
+        return 2
 
-    exchange_client = ExchangeClient(config)
-    state = StateManager(config.paths.db_path)
-    execution_client = build_execution_client(config, exchange_client, state)
-
+    log.info(f"Loaded {config}")
     if not config.paper_trading:
-        logger.warning(
-            "PAPER_TRADING is False - this bot will place REAL orders on %s.",
-            config.exchange.exchange_id,
-        )
+        log.warning("=" * 70)
+        log.warning("LIVE TRADING MODE - real orders will be sent to %s%s", config.exchange_id,
+                    " (TESTNET)" if config.use_testnet else "")
+        log.warning("=" * 70)
 
-    engine = BotEngine(config, exchange_client, execution_client, state)
+    # Paper mode never gets API keys: public market data is all it needs.
+    exchange = ExchangeClient.from_config(config, public_only=config.paper_trading)
+    executor = build_execution_client(config, state, exchange)
+    engine = BotEngine(config, state, exchange, executor, RiskManager(state.get_all_settings))
+    engine.install_signal_handlers()
     try:
-        engine.run_forever()
-    finally:
-        if isinstance(execution_client, PaperExecutionClient):
-            state.set_setting("paper_balance", execution_client.get_account_equity())
-        state.close()
+        engine.run(once=args.once)
+    except Exception as exc:
+        log.critical(f"Bot terminated: {type(exc).__name__}: {exc}")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

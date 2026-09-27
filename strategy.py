@@ -1,262 +1,215 @@
+"""Signal generation - pure functions, no I/O, no exchange, no state.
+
+The same code is used by the live engine and by ``backtest.py``:
+
+* ``compute_indicators(df, params)`` adds indicator and signal columns. Every
+  column at row ``i`` depends only on rows ``<= i`` (the Donchian channel is
+  shifted by one so the current candle is compared with the *previous* N
+  candles). Callers must pass **closed candles only**.
+* ``generate_signal(df, params)`` evaluates the last (most recent closed)
+  row and returns a ``Signal`` explaining each confirmation layer.
+
+Confirmation layers
+-------------------
+1. Trend filter (mandatory): close above / below EMA(``ema_trend_period``).
+2. Momentum: RSI inside a configurable range (avoids chasing extremes).
+3. MACD + volume: a MACD/signal cross within the last N candles, MACD still
+   on the right side, and volume above its average x factor.
+4. Volatility breakout: close beyond the previous Donchian channel plus an
+   optional ATR buffer.
+
+A signal fires when the trend filter passes and at least
+``min_confirmations`` of layers 2-4 agree.
 """
-Signal generation logic - completely independent from execution.
 
-This module only looks at OHLCV data (as a pandas DataFrame of *closed*
-candles) and a set of parameters, and returns a Signal. It never touches
-the exchange, the database, or an order book. That separation is what lets
-the exact same code run in bot_engine.py (live/paper) and backtest.py.
-
-Confirmation layers combined (all must agree for an entry signal):
-  1. Trend filter    - EMA(ema_trend_period): price above => long bias,
-                        below => short bias.
-  2. Momentum        - RSI(rsi_period) inside [rsi_lower, rsi_upper] is
-                        considered "healthy" (not overbought/oversold
-                        against the trade direction).
-  3. MACD + volume   - MACD line crossing its signal line in the trend
-                        direction, confirmed by volume above its moving
-                        average (volume_confirmation_multiplier).
-  4. Volatility      - Donchian channel breakout (close breaking the prior
-                        N-period high/low) in the trend direction, with
-                        ATR available for downstream risk sizing.
-
-A signal only fires when every layer agrees; otherwise the result is a
-"no trade" (side=None) signal, which still carries the computed indicator
-values for logging/dashboard purposes.
-"""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional
+from dataclasses import dataclass, field, fields
+from typing import Any, Dict, Mapping
 
 import numpy as np
 import pandas as pd
 
 
-class Side(str, Enum):
-    LONG = "long"
-    SHORT = "short"
-
-
-@dataclass(frozen=True)
+@dataclass
 class StrategyParams:
     ema_trend_period: int = 200
     rsi_period: int = 14
-    rsi_lower: float = 40.0
-    rsi_upper: float = 70.0
+    rsi_long_min: float = 45.0
+    rsi_long_max: float = 70.0
+    rsi_short_min: float = 30.0
+    rsi_short_max: float = 55.0
     macd_fast: int = 12
     macd_slow: int = 26
     macd_signal: int = 9
+    macd_cross_lookback: int = 3
     volume_ma_period: int = 20
-    volume_confirmation_multiplier: float = 1.2
-    donchian_period: int = 20
+    volume_factor: float = 1.2
     atr_period: int = 14
+    donchian_period: int = 20
+    breakout_atr_buffer: float = 0.0
+    min_confirmations: int = 3
+    allow_short: bool = False
+    exit_on_trend_flip: bool = True
+
+    @classmethod
+    def from_settings(cls, settings: Mapping[str, Any]) -> "StrategyParams":
+        """Build from the state_manager settings dict; unknown keys are ignored."""
+        kwargs = {}
+        for f in fields(cls):
+            if f.name in settings and settings[f.name] is not None:
+                default = getattr(cls, f.name)
+                kwargs[f.name] = type(default)(settings[f.name])
+        params = cls(**kwargs)
+        params.min_confirmations = int(min(3, max(1, params.min_confirmations)))
+        params.macd_cross_lookback = max(1, params.macd_cross_lookback)
+        return params
 
     @property
-    def min_bars_required(self) -> int:
-        return (
-            max(
-                self.ema_trend_period,
-                self.rsi_period,
-                self.macd_slow + self.macd_signal,
-                self.volume_ma_period,
-                self.donchian_period,
-                self.atr_period,
-            )
-            + 5
-        )
-
-
-@dataclass
-class IndicatorSnapshot:
-    close: float
-    ema_trend: float
-    rsi: float
-    macd: float
-    macd_signal: float
-    macd_hist: float
-    macd_hist_prev: float
-    volume: float
-    volume_ma: float
-    atr: float
-    donchian_high: float
-    donchian_low: float
-    donchian_high_prev: float
-    donchian_low_prev: float
+    def warmup(self) -> int:
+        """Minimum number of closed candles before signals are meaningful."""
+        return max(self.ema_trend_period, self.macd_slow + self.macd_signal, self.donchian_period + 1,
+                   self.volume_ma_period + 1, self.rsi_period, self.atr_period) + 5
 
 
 @dataclass
 class Signal:
-    side: Optional[Side]
-    reasons: list[str] = field(default_factory=list)
-    indicators: Optional[IndicatorSnapshot] = None
+    action: str  # "long" | "short" | "hold"
+    timestamp: int = 0
+    close: float = 0.0
+    atr: float = 0.0
+    exit_long: bool = False
+    exit_short: bool = False
+    reasons: Dict[str, Any] = field(default_factory=dict)
 
     @property
-    def is_actionable(self) -> bool:
-        return self.side is not None
+    def is_entry(self) -> bool:
+        return self.action in ("long", "short")
 
 
-# ---------------------------------------------------------------------
-# Indicator building blocks (pure functions - reused by backtest.py)
-# ---------------------------------------------------------------------
+# --------------------------------------------------------------- indicators
 def ema(series: pd.Series, period: int) -> pd.Series:
-    return series.ewm(span=period, adjust=False).mean()
+    return series.ewm(span=period, adjust=False, min_periods=period).mean()
 
 
-def rsi(series: pd.Series, period: int) -> pd.Series:
-    delta = series.diff()
+def rsi(close: pd.Series, period: int) -> pd.Series:
+    delta = close.diff()
     gain = delta.clip(lower=0.0)
     loss = -delta.clip(upper=0.0)
-    avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
-    avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    result = 100 - (100 / (1 + rs))
-    # Where avg_loss is 0 and avg_gain > 0, RSI should be 100.
-    result = result.where(avg_loss != 0, 100.0)
-    return result
+    avg_gain = gain.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+    rs = avg_gain / avg_loss.replace(0.0, np.nan)
+    out = 100.0 - 100.0 / (1.0 + rs)
+    out = out.where(avg_loss != 0.0, 100.0)  # no losses at all -> RSI 100
+    return out.where(avg_gain.notna())
 
 
-def macd(series: pd.Series, fast: int, slow: int, signal: int):
-    ema_fast = ema(series, fast)
-    ema_slow = ema(series, slow)
-    macd_line = ema_fast - ema_slow
-    signal_line = ema(macd_line, signal)
-    hist = macd_line - signal_line
-    return macd_line, signal_line, hist
+def macd(close: pd.Series, fast: int, slow: int, signal: int):
+    macd_line = ema(close, fast) - ema(close, slow)
+    signal_line = macd_line.ewm(span=signal, adjust=False, min_periods=signal).mean()
+    return macd_line, signal_line, macd_line - signal_line
 
 
 def atr(df: pd.DataFrame, period: int) -> pd.Series:
-    high, low, close = df["high"], df["low"], df["close"]
-    prev_close = close.shift(1)
+    prev_close = df["close"].shift(1)
     tr = pd.concat(
-        [
-            (high - low).abs(),
-            (high - prev_close).abs(),
-            (low - prev_close).abs(),
-        ],
-        axis=1,
+        [df["high"] - df["low"], (df["high"] - prev_close).abs(), (df["low"] - prev_close).abs()], axis=1
     ).max(axis=1)
-    return tr.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    return tr.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
 
 
-def donchian(df: pd.DataFrame, period: int):
-    high = df["high"].rolling(window=period).max()
-    low = df["low"].rolling(window=period).min()
-    return high, low
-
-
-# ---------------------------------------------------------------------
-# Signal generation
-# ---------------------------------------------------------------------
 def compute_indicators(df: pd.DataFrame, params: StrategyParams) -> pd.DataFrame:
-    """
-    Returns a copy of df with indicator columns appended. Expects columns:
-    timestamp, open, high, low, close, volume (standard ccxt OHLCV shape,
-    already converted to a DataFrame).
-    """
+    """Return a copy of ``df`` with indicator + signal columns (closed candles only)."""
     out = df.copy()
-    out["ema_trend"] = ema(out["close"], params.ema_trend_period)
-    out["rsi"] = rsi(out["close"], params.rsi_period)
-    macd_line, signal_line, hist = macd(
-        out["close"], params.macd_fast, params.macd_slow, params.macd_signal
-    )
-    out["macd"] = macd_line
-    out["macd_signal"] = signal_line
-    out["macd_hist"] = hist
-    out["volume_ma"] = out["volume"].rolling(window=params.volume_ma_period).mean()
+    close = out["close"]
+
+    out["ema_trend"] = ema(close, params.ema_trend_period)
+    out["rsi"] = rsi(close, params.rsi_period)
+    out["macd"], out["macd_signal"], out["macd_hist"] = macd(close, params.macd_fast, params.macd_slow,
+                                                             params.macd_signal)
     out["atr"] = atr(out, params.atr_period)
-    donchian_high, donchian_low = donchian(out, params.donchian_period)
-    out["donchian_high"] = donchian_high
-    out["donchian_low"] = donchian_low
+    # previous N candles only -> the current candle can break out of it
+    out["donchian_high"] = out["high"].rolling(params.donchian_period).max().shift(1)
+    out["donchian_low"] = out["low"].rolling(params.donchian_period).min().shift(1)
+    out["volume_ma"] = out["volume"].rolling(params.volume_ma_period).mean().shift(1)
+
+    above = out["macd"] > out["macd_signal"]
+    below = out["macd"] < out["macd_signal"]
+    cross_up = above & ~above.shift(1, fill_value=False)
+    cross_down = below & ~below.shift(1, fill_value=False)
+    lb = params.macd_cross_lookback
+    recent_up = cross_up.astype(int).rolling(lb, min_periods=1).max().astype(bool)
+    recent_down = cross_down.astype(int).rolling(lb, min_periods=1).max().astype(bool)
+    volume_ok = out["volume"] > out["volume_ma"] * params.volume_factor
+
+    buffer = out["atr"] * params.breakout_atr_buffer
+
+    # --- layer flags (NaN comparisons evaluate to False -> safe during warm-up)
+    out["trend_long"] = close > out["ema_trend"]
+    out["trend_short"] = close < out["ema_trend"]
+    out["mom_long"] = out["rsi"].between(params.rsi_long_min, params.rsi_long_max)
+    out["mom_short"] = out["rsi"].between(params.rsi_short_min, params.rsi_short_max)
+    out["macdvol_long"] = recent_up & above & volume_ok
+    out["macdvol_short"] = recent_down & below & volume_ok
+    out["breakout_long"] = close > (out["donchian_high"] + buffer)
+    out["breakout_short"] = close < (out["donchian_low"] - buffer)
+
+    long_conf = out[["mom_long", "macdvol_long", "breakout_long"]].sum(axis=1)
+    short_conf = out[["mom_short", "macdvol_short", "breakout_short"]].sum(axis=1)
+    out["long_confirmations"] = long_conf
+    out["short_confirmations"] = short_conf
+
+    valid = pd.Series(np.arange(len(out)) >= params.warmup - 1, index=out.index)
+    valid &= out[["ema_trend", "rsi", "macd_signal", "atr", "donchian_high", "volume_ma"]].notna().all(axis=1)
+
+    out["long_signal"] = valid & out["trend_long"] & (long_conf >= params.min_confirmations)
+    short_raw = valid & out["trend_short"] & (short_conf >= params.min_confirmations)
+    out["short_signal"] = short_raw if params.allow_short else False
+    out["exit_long"] = bool(params.exit_on_trend_flip) & valid & out["trend_short"]
+    out["exit_short"] = bool(params.exit_on_trend_flip) & valid & out["trend_long"]
     return out
 
 
 def generate_signal(df: pd.DataFrame, params: StrategyParams) -> Signal:
-    """
-    df must contain only *closed* candles (the caller - bot_engine.py or
-    backtest.py - is responsible for dropping any still-forming candle to
-    avoid look-ahead bias). The signal is evaluated on the last row.
-    """
-    if len(df) < params.min_bars_required:
-        return Signal(side=None, reasons=["insufficient_history"])
+    """Evaluate the most recent closed candle in ``df``."""
+    if df is None or len(df) < params.warmup:
+        return Signal(action="hold", reasons={"warmup": f"need {params.warmup} candles, have {0 if df is None else len(df)}"})
+    ind = compute_indicators(df, params)
+    return signal_from_row(ind.iloc[-1])
 
-    enriched = compute_indicators(df, params)
-    last = enriched.iloc[-1]
-    prev = enriched.iloc[-2]
 
-    if last[["ema_trend", "rsi", "macd", "macd_signal", "atr", "donchian_high", "donchian_low"]].isna().any():
-        return Signal(side=None, reasons=["indicators_warming_up"])
-
-    snapshot = IndicatorSnapshot(
-        close=float(last["close"]),
-        ema_trend=float(last["ema_trend"]),
-        rsi=float(last["rsi"]),
-        macd=float(last["macd"]),
-        macd_signal=float(last["macd_signal"]),
-        macd_hist=float(last["macd_hist"]),
-        macd_hist_prev=float(prev["macd_hist"]),
-        volume=float(last["volume"]),
-        volume_ma=float(last["volume_ma"]) if not pd.isna(last["volume_ma"]) else 0.0,
-        atr=float(last["atr"]),
-        donchian_high=float(last["donchian_high"]),
-        donchian_low=float(last["donchian_low"]),
-        donchian_high_prev=float(prev["donchian_high"]) if not pd.isna(prev["donchian_high"]) else float(last["donchian_high"]),
-        donchian_low_prev=float(prev["donchian_low"]) if not pd.isna(prev["donchian_low"]) else float(last["donchian_low"]),
+def signal_from_row(row: pd.Series) -> Signal:
+    """Turn a row of ``compute_indicators`` output into a ``Signal``."""
+    action = "long" if bool(row["long_signal"]) else "short" if bool(row["short_signal"]) else "hold"
+    reasons = {
+        "close": _r(row["close"]),
+        "ema_trend": _r(row["ema_trend"]),
+        "rsi": _r(row["rsi"]),
+        "macd": _r(row["macd"]),
+        "macd_signal": _r(row["macd_signal"]),
+        "volume": _r(row["volume"]),
+        "volume_ma": _r(row["volume_ma"]),
+        "donchian_high": _r(row["donchian_high"]),
+        "donchian_low": _r(row["donchian_low"]),
+        "atr": _r(row["atr"]),
+        "long": {"trend": bool(row["trend_long"]), "momentum": bool(row["mom_long"]),
+                 "macd_volume": bool(row["macdvol_long"]), "breakout": bool(row["breakout_long"])},
+        "short": {"trend": bool(row["trend_short"]), "momentum": bool(row["mom_short"]),
+                  "macd_volume": bool(row["macdvol_short"]), "breakout": bool(row["breakout_short"])},
+    }
+    return Signal(
+        action=action,
+        timestamp=int(row["timestamp"]),
+        close=float(row["close"]),
+        atr=float(row["atr"]) if pd.notna(row["atr"]) else 0.0,
+        exit_long=bool(row["exit_long"]),
+        exit_short=bool(row["exit_short"]),
+        reasons=reasons,
     )
 
-    reasons: list[str] = []
 
-    # 1. Trend filter
-    trend_long = snapshot.close > snapshot.ema_trend
-    trend_short = snapshot.close < snapshot.ema_trend
-
-    # 2. Momentum filter (healthy zone, not extreme against direction)
-    momentum_ok = params.rsi_lower <= snapshot.rsi <= params.rsi_upper
-    momentum_long_ok = momentum_ok
-    momentum_short_ok = momentum_ok
-
-    # 3. MACD crossover (hist crossing zero) + volume confirmation
-    macd_cross_up = snapshot.macd_hist_prev <= 0 < snapshot.macd_hist
-    macd_cross_down = snapshot.macd_hist_prev >= 0 > snapshot.macd_hist
-    volume_confirmed = snapshot.volume > snapshot.volume_ma * params.volume_confirmation_multiplier
-
-    # 4. Volatility breakout (Donchian)
-    breakout_up = snapshot.close > snapshot.donchian_high_prev
-    breakout_down = snapshot.close < snapshot.donchian_low_prev
-
-    long_ok = trend_long and momentum_long_ok and macd_cross_up and volume_confirmed and breakout_up
-    short_ok = trend_short and momentum_short_ok and macd_cross_down and volume_confirmed and breakout_down
-
-    if long_ok:
-        reasons = [
-            "trend:long (close>EMA200)",
-            f"rsi:{snapshot.rsi:.1f} in range",
-            "macd:bullish cross",
-            "volume:confirmed",
-            "donchian:breakout up",
-        ]
-        return Signal(side=Side.LONG, reasons=reasons, indicators=snapshot)
-
-    if short_ok:
-        reasons = [
-            "trend:short (close<EMA200)",
-            f"rsi:{snapshot.rsi:.1f} in range",
-            "macd:bearish cross",
-            "volume:confirmed",
-            "donchian:breakout down",
-        ]
-        return Signal(side=Side.SHORT, reasons=reasons, indicators=snapshot)
-
-    # No trade - explain why, for logging/dashboard visibility.
-    if not (trend_long or trend_short):
-        reasons.append("trend:flat/undefined")
-    if not momentum_long_ok:
-        reasons.append(f"rsi:{snapshot.rsi:.1f} out of range")
-    if not (macd_cross_up or macd_cross_down):
-        reasons.append("macd:no fresh cross")
-    if not volume_confirmed:
-        reasons.append("volume:not confirmed")
-    if not (breakout_up or breakout_down):
-        reasons.append("donchian:no breakout")
-
-    return Signal(side=None, reasons=reasons, indicators=snapshot)
+def _r(value: Any, nd: int = 6) -> Any:
+    try:
+        return None if pd.isna(value) else round(float(value), nd)
+    except (TypeError, ValueError):
+        return value

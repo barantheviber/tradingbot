@@ -1,136 +1,170 @@
 # tradingbot
 
-Python + [ccxt](https://github.com/ccxt/ccxt) tabanlı, modüler kripto trading botu. Varsayılan olarak **paper trading** (kağıt üzerinde, gerçek para olmadan) çalışır.
+Python + [ccxt](https://github.com/ccxt/ccxt) tabanlı, modüler bir kripto trading botu.
+Varsayılan olarak **paper trading** modunda çalışır; canlıya geçiş bilinçli, ayrı bir adımdır.
+
+> ⚠️ **UYARI:** Bu bot kâr garantisi vermez ve yatırım tavsiyesi değildir. Kripto piyasaları çok
+> oynaktır ve tüm sermayenizi kaybedebilirsiniz. Canlıya geçmeden önce botu uzun süre paper trading
+> modunda ve mümkünse borsanın testnet ortamında doğrulayın. Kullanımdan doğan tüm sorumluluk size aittir.
 
 ## Mimari
 
 ```
-config.py            -> tüm ayarlar (env değişkenlerinden okunur)
-exchange_client.py    -> ccxt sarmalayıcısı, exponential backoff + jitter ile retry
-strategy.py           -> sinyal üretimi (execution'dan bağımsız, backtest'te de kullanılır)
-risk_manager.py       -> pozisyon boyutlandırma, SL/TP, trailing stop, günlük drawdown limiti
-state_manager.py      -> SQLite: pozisyonlar, işlem geçmişi, canlı düzenlenebilir parametreler
+config.py            Ortam ayarları (.env) + canlı parametrelerin başlangıç değerleri
+logging_setup.py     Yapılandırılmış log: konsol + JSON satırlı dönen dosya, API anahtarı maskeleme
+exchange_client.py   ccxt sarmalayıcısı: exponential backoff + jitter, retry / fail-fast ayrımı
+strategy.py          Saf sinyal fonksiyonları (I/O yok) - canlı bot ve backtest aynı kodu kullanır
+risk_manager.py      ATR ile pozisyon boyutu, SL/TP, trailing stop, günlük zarar limiti, maruziyet
+state_manager.py     SQLite: pozisyonlar, işlem geçmişi, canlı ayarlar, olay logu, migration
+performance.py       Ortak performans özeti (kazanma oranı, profit factor, drawdown...)
 execution/
-  base.py             -> BaseExecutionClient arayüzü (ortak loglama + performans özeti)
-  paper.py            -> PaperExecutionClient (simüle fill)
-  live.py             -> LiveExecutionClient (gerçek emir, exchange_client üzerinden)
-bot_engine.py          -> ana döngü: sadece KAPANMIŞ mumlarda sinyal üretir, SIGINT/SIGTERM ile düzgün kapanır
-dashboard/app.py       -> Streamlit + Plotly: canlı grafik, açık pozisyonlar, PnL, log terminali, canlı parametre paneli
-backtest.py            -> hızlı, look-ahead-safe walk-forward backtest scripti
-main.py                -> giriş noktası
-tests/                 -> risk_manager, state_manager, strategy için birim testleri
+  base.py            BaseExecutionClient: ortak açma/kapama, PnL, loglama, performans özeti
+  paper.py           PaperExecutionClient: slippage + komisyon simülasyonu
+  live.py            LiveExecutionClient: gerçek emirler, hassasiyet/min. limit kontrolü, mutabakat
+bot_engine.py        Ana döngü: sadece kapanmış mumlar, 1 sn'lik uykularla düzgün kapanma
+dashboard/app.py     Streamlit + Plotly paneli
+main.py              Giriş noktası
+backtest.py          Geçmiş veride hızlı sağlama
+tests/               Birim testleri (risk, boyutlandırma, state, strateji, retry, engine)
 ```
+
+### Strateji (çok katmanlı teyit)
+
+1. **Trend filtresi (zorunlu):** kapanış EMA200'ün üstünde (long) / altında (short).
+2. **Momentum:** RSI ayarlanabilir bir aralıkta (aşırı alım/satımı kovalamaz).
+3. **MACD + hacim:** son N kapanmış mumda MACD/sinyal kesişimi, MACD hâlâ doğru tarafta ve hacim
+   ortalamanın belirli katı üzerinde.
+4. **Volatilite kırılımı:** kapanış, önceki N mumun Donchian kanalını (isteğe bağlı ATR tamponuyla) aşıyor.
+
+Sinyal = trend filtresi + 2-4 numaralı katmanlardan en az `min_confirmations` tanesi (varsayılan 3,
+yani hepsi). Pozisyon, fiyat EMA trend çizgisinin ters tarafında kapanırsa da kapatılır
+(`exit_on_trend_flip`). Short varsayılan olarak kapalıdır (`allow_short`); spot piyasada canlıda short açılmaz.
+
+**Look-ahead yok:** borsadan gelen son (henüz kapanmamış) mum atılır, Donchian kanalı ve hacim
+ortalaması bir mum kaydırılarak hesaplanır ve bot her kapanmış mumu yalnızca bir kez değerlendirir
+(son işlenen mum SQLite'ta tutulur, yeniden başlatmada aynı mum tekrar işlenmez). Bir testte, gelecek
+mumlar eklendiğinde geçmiş sinyallerin değişmediği doğrulanıyor.
+
+### Risk yönetimi
+
+- **Pozisyon boyutu:** `(özsermaye × risk_per_trade_pct) / |giriş − stop|`, stop mesafesi = ATR × `atr_sl_multiplier`.
+- **TP:** stop mesafesi × `risk_reward_ratio` (varsayılan 2:1).
+- **Trailing stop:** fiyat `trailing_activation_r` × R lehimize gidince devreye girer; en yüksek (long)
+  / en düşük (short) fiyattan ATR × `trailing_atr_multiplier` uzakta durur ve **yalnızca kârı koruyan
+  yönde** hareket eder.
+- **Günlük zarar limiti:** UTC gün başı özsermayesine göre zarar `daily_loss_limit_pct`'i (varsayılan %5)
+  aşarsa yeni pozisyon açılmaz; UTC gece yarısında yeni gün kaydıyla otomatik sıfırlanır.
+- **Maruziyet:** `max_open_positions` ve sembol başına `max_symbol_exposure_pct` (özsermaye yüzdesi) sınırı.
+  Sembol başına aynı anda tek pozisyon açılır.
+- **Kill switch:** `trading_enabled=false` yeni girişleri durdurur, açık pozisyonların SL/TP'si çalışmaya devam eder.
+
+Tüm strateji/risk parametreleri SQLite `settings` tablosundadır ve **canlı değiştirilebilir**
+(dashboard, `python main.py --set ...` veya doğrudan `StateManager.set_setting`). Bot her mumda
+güncel değerleri okur. `config.py` içindeki `DEFAULT_SETTINGS` sadece ilk çalıştırmadaki başlangıç
+değerleridir; sizin değiştirdiğiniz değerlerin üzerine yazılmaz.
+
+### Dayanıklılık
+
+- Tüm ağ çağrıları `ExchangeClient.call` üzerinden retry + exponential backoff + jitter ile yapılır.
+  `NetworkError` / `RateLimitExceeded` / `DDoSProtection` tekrar denenir; `AuthenticationError`,
+  `InsufficientFunds`, `InvalidOrder` vb. hemen hata verir. Kimlik doğrulama hatasında bot durur.
+- **Emirler:** çift emir riskine karşı `create_order` yalnızca emrin kesin reddedildiği rate-limit
+  hatalarında tekrar denenir; zaman aşımında bir sonraki döngüde durum yeniden değerlendirilir.
+- Açık pozisyonlar SQLite'tan geri yüklenir; canlı modda borsa bakiyesiyle karşılaştırılır (mutabakat
+  uyarısı).
+- Loglar: konsol (okunabilir) + `logs/tradingbot.jsonl` (JSON satırları, 5 MB × 5 dönen dosya).
+  Her sinyal değerlendirmesi, karar, işlem ve hata ayrıca SQLite `event_log` tablosuna yazılır ve
+  dashboard'daki log terminalinde görünür. API anahtarları hiçbir log çıktısına yazılmaz (maskeleme filtresi).
+
+> **Not:** SL/TP ve trailing stop bot tarafından (yazılımsal) uygulanır; bot çalışmıyorsa tetiklenmez.
 
 ## Kurulum
 
+Python 3.10+ gerekir.
+
 ```bash
-python3 -m venv .venv
+git clone https://github.com/barantheviber/tradingbot.git
+cd tradingbot
+python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env
-# .env dosyasını kendi ayarlarınla düzenle (borsa, sembol, risk parametreleri, API anahtarları)
+cp .env.example .env               # sonra .env'i düzenleyin
 ```
-
-`.env` dosyası asla repoya eklenmez (`.gitignore` içinde). API anahtarların sadece `.env` üzerinden okunur; koda gömülmez, hiçbir yerde loglanmaz.
 
 ## Çalıştırma
 
-### Botu başlat (paper trading, varsayılan)
-
 ```bash
-python main.py
-```
+# 1) Testler ve sözdizimi kontrolü
+python -m py_compile $(git ls-files '*.py')
+python -m pytest -q
 
-`PAPER_TRADING=True` iken hiçbir gerçek emir gönderilmez; fill'ler `execution/paper.py` içinde simüle edilir ve bakiye SQLite'ta (`data/trading_bot.sqlite3`) tutulur.
+# 2) Backtest (strateji mantığının hızlı sağlaması)
+python backtest.py --synthetic 3000                         # internetsiz, sentetik veri
+python backtest.py --symbol BTC/USDT --timeframe 1h --days 180
+python backtest.py --csv veri.csv --db data/tradingbot.db   # canlı ayarlarla
+python backtest.py --days 365 --set min_confirmations=2 --set risk_reward_ratio=3 --trades-csv trades.csv
 
-### Canlıya geçiş
+# 3) Bot (varsayılan: paper trading)
+python main.py                 # sürekli çalışır, Ctrl+C / SIGTERM ile düzgün kapanır
+python main.py --once          # tek döngü (duman testi)
 
-Bilinçli, ayrı bir adımdır:
-
-1. `.env` içinde `EXCHANGE_API_KEY` ve `EXCHANGE_API_SECRET` değerlerini gir.
-2. `PAPER_TRADING=False` yap.
-3. İlk seferde `EXCHANGE_SANDBOX=True` ile borsanın testnet'inde doğrula, sonra `False` yap.
-
-### Dashboard'u başlat
-
-```bash
+# 4) Dashboard (ayrı bir terminalde)
 streamlit run dashboard/app.py
+
+# Ayarları komut satırından görmek / değiştirmek
+python main.py --show-settings
+python main.py --set risk_per_trade_pct=0.5 --set max_open_positions=2
 ```
 
-Canlı mum grafiği (EMA200 + Donchian kanalı ile), açık pozisyonlar (manuel kapatma butonlu), PnL özeti, karar/işlem log terminali ve strateji/risk parametrelerini canlı düzenleyebileceğin form burada.
+Backtest'te sinyal mumun kapanışında hesaplanır, emir bir sonraki mumun açılışında dolar; aynı mumda
+hem SL hem TP'ye değilirse (muhafazakâr olarak) önce SL varsayılır.
 
-### Backtest
+### Dashboard
 
-```bash
-python backtest.py --symbol BTC/USDT --timeframe 15m --limit 1500
-# ya da yerel bir CSV ile:
-python backtest.py --csv path/to/ohlcv.csv
-```
+- Canlı mum grafiği (EMA, Donchian kanalı, sinyaller, alış/satış işaretleri, açık pozisyonların giriş/SL/TP çizgileri)
+- Açık pozisyonlar tablosu ve her satırda **Kapat** butonu (+ tümünü kapat)
+- PnL özeti, kümülatif PnL grafiği ve kapanmış işlemler
+- İşlem/karar log terminali (kategori filtresi)
+- Strateji/risk parametrelerini canlı düzenleme paneli
 
-CSV formatı: `timestamp,open,high,low,close,volume` (timestamp ms cinsinden, ccxt `fetch_ohlcv` ile aynı).
+Dashboard hiçbir zaman kendisi emir göndermez ve API anahtarı kullanmaz: **Kapat** butonu SQLite'taki
+komut kuyruğuna bir kayıt ekler, çalışan bot bunu ~1 saniye içinde işler. Bu nedenle manuel kapatma için
+botun çalışıyor olması gerekir.
 
-### Testler
+## Canlıya geçiş (bilinçli adım)
 
-```bash
-pytest
-```
+1. Uzun süre paper modda çalıştırın ve sonuçları inceleyin.
+2. Mümkünse önce testnet: `.env` içinde `USE_TESTNET=true` ve testnet API anahtarları.
+3. Borsada **para çekme yetkisi olmayan**, mümkünse IP kısıtlı bir API anahtarı oluşturun.
+4. `.env` içinde:
+   ```
+   PAPER_TRADING=false
+   LIVE_TRADING_CONFIRM=I_UNDERSTAND_THE_RISKS
+   API_KEY=...
+   API_SECRET=...
+   ```
+   İkisi birden ayarlanmadan bot canlı modda başlamaz.
+5. Küçük `risk_per_trade_pct` ve `max_symbol_exposure_pct` değerleriyle başlayın.
 
-### Sözdizimi kontrolü
+Paper ve canlı pozisyonlar veritabanında `mode` sütunuyla ayrılır; yine de her mod için ayrı bir
+`DB_PATH` kullanmanız önerilir.
 
-```bash
-python -m py_compile config.py exchange_client.py strategy.py risk_manager.py state_manager.py bot_engine.py main.py backtest.py execution/*.py dashboard/app.py
-```
+## Borsa değiştirme
 
-## Strateji katmanı
+`.env` içinde `EXCHANGE_ID` herhangi bir ccxt borsa kimliği olabilir (`binance`, `bybit`, `okx`,
+`kucoin`...). Vadeli işlemler için `MARKET_TYPE=future` / `swap` ve uygun sembol formatı
+(ör. `BTC/USDT:USDT`) kullanın.
 
-Tek indikatöre güvenilmez; bir sinyal için tüm katmanlar aynı yönde uyuşmalıdır:
+## Şema değişiklikleri (migration)
 
-1. **Trend filtresi** - EMA200'e göre fiyat konumu.
-2. **Momentum** - RSI, ayarlanabilir bir aralıkta (varsayılan 40-70) "sağlıklı" kabul edilir.
-3. **MACD kesişimi + hacim teyidi** - MACD histogramının sıfırı kesmesi, hacmin hareketli ortalamasının üzerinde olmasıyla teyit edilir.
-4. **Volatilite kırılımı** - Donchian kanalının önceki üst/alt bandının kırılması, ATR ile birlikte pozisyon boyutlandırmada kullanılır.
-
-Tüm parametreler `state_manager` üzerinden canlı değiştirilebilir (dashboard'daki form ya da `state_manager.set_setting(key, value)`); koda gömülü değildir.
-
-## Risk yönetimi
-
-- Pozisyon boyutu: `risk_amount / stop_distance`, burada `risk_amount = equity * risk_per_trade_pct / 100` ve `stop_distance = ATR * atr_sl_multiplier`.
-- TP, `risk_reward_ratio` (varsayılan 2:1) ile stop mesafesinin katı kadar ötede.
-- Trailing stop yalnızca kârı koruyan yönde ilerler (`risk_manager.update_trailing_stop`).
-- Günlük toplam zarar `max_daily_drawdown_pct` (varsayılan %5) aşarsa o gün yeni pozisyon açılışı durur; UTC gece yarısında otomatik sıfırlanır.
-- `max_concurrent_positions` ve `max_exposure_per_symbol_pct` ile eşzamanlı pozisyon sayısı ve sembol başına maruziyet sınırlanır.
-
-## Şema migration'ları
-
-`state_manager.py` içindeki `_migrations` listesi, `__init__` içinde bir kere çalışır ve `meta.schema_version` ile hangi migration'ların uygulandığını takip eder. Yeni bir şema değişikliği eklerken:
-
-1. Yeni bir `_migration_00N_...` metodu ekle (idempotent olmalı, örn. `ALTER TABLE` öncesi `PRAGMA table_info` ile kolon kontrolü).
-2. `self._migrations` listesine sona ekle.
-3. Var olan veritabanları bir sonraki `StateManager(...)` çağrısında otomatik olarak bu migration'ı çalıştırır; eski veriler korunur.
-
-Bu teslimde uygulanan migration'lar:
-- `001_initial_schema`: `positions`, `trades`, `settings`, `event_log` tabloları.
-- `002_add_positions_meta`: `positions` tablosuna `meta` (JSON) kolonu.
-
-## Dayanıklılık
-
-- Tüm ağ çağrıları `exchange_client.py` üzerinden, exponential backoff + jitter ile retry edilir. Retryable hatalar (`NetworkError`, `RateLimitExceeded`, `DDoSProtection`, `ExchangeNotAvailable`, `RequestTimeout`) ile retryable olmayanlar (`AuthenticationError`, `InsufficientFunds`, `InvalidOrder`, `PermissionDenied`, `BadSymbol`) ayrı ele alınır.
-- Yapılandırılmış loglama: hem dosyaya (`logs/trading_bot.log`) hem konsola; her karar ve hata net şekilde loglanır, aynı zamanda `state_manager.event_log` tablosuna da yazılır (dashboard'daki log terminali buradan beslenir).
-- Bot çöküp yeniden başlarsa, açık pozisyonlar `state_manager`'dan geri yüklenir (`bot_engine._restore_open_positions`).
-- `SIGINT`/`SIGTERM` ile düzgün kapanma: ana döngü tek uzun `sleep` yerine 1 saniyelik artışlarla uyur, sinyal geldiği an döngüden çıkar.
-
-## Varsaydığım API'ler / entegrasyon noktaları
-
-İleride gerçek kodla bir sapma olursa kolayca düzeltebilmen için, bu ilk teslimde kendi içinde tutarlı varsaydığım isimler:
-
-- `state_manager.StateManager.get_setting(key, default=None)` / `set_setting(key, value)` / `get_all_settings()` / `seed_default_settings(defaults)`
-- `state_manager.StateManager.open_position/close_position/update_position_stop/get_open_positions/get_position`
-- `state_manager.StateManager.record_trade/get_trade_history/realized_pnl_since`
-- `state_manager.StateManager.log_event/get_recent_events`
-- `execution.base.BaseExecutionClient.open_position/close_position/get_account_equity/performance_summary`
-- `strategy.generate_signal(df, StrategyParams) -> Signal` (`Signal.side`, `.reasons`, `.indicators`)
-- `risk_manager.compute_position_size/update_trailing_stop/check_exposure_limit/check_max_positions`
+`StateManager.__init__` tek seferlik `_run_migrations()` çağırır; `schema_version` tablosuna bakarak
+eksik migration'ları sırayla, her biri kendi transaction'ında uygular. Yeni bir şema değişikliği için
+`state_manager.py` içindeki `MIGRATIONS` listesine yeni bir `(versiyon, fonksiyon)` ekleyin ve yalnızca
+eklemeli değişiklik yapın (ör. `add_column_if_missing(conn, "positions", "strategy", "TEXT DEFAULT 'x'")`).
+Yayınlanmış bir migration'ı asla değiştirmeyin. Mevcut şema versiyonu: **1**.
 
 ---
 
-**Uyarı:** Bu bot kâr garantisi vermez ve yatırım tavsiyesi değildir. Canlıya geçmeden önce uzun süre paper trading ile ve mümkünse borsanın testnet ortamıyla doğrulama yapılmalıdır. Kripto para ticareti önemli finansal risk taşır; kaybetmeyi göze alamayacağın parayla işlem yapma.
+> ⚠️ **Bu bot kâr garantisi vermez, yatırım tavsiyesi değildir.** Geçmiş performans (backtest dahil)
+> gelecekteki sonuçları göstermez. Canlıya geçmeden önce uzun süre paper trading ve mümkünse testnet ile
+> doğrulayın; yalnızca kaybetmeyi göze alabileceğiniz parayla işlem yapın.

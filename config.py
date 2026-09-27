@@ -1,167 +1,203 @@
-"""
-Central configuration for the trading bot.
+"""Central configuration.
 
-Every tunable value that isn't meant to change *live* (see state_manager.py
-for the live-editable strategy/risk parameters) is defined here and can be
-overridden via environment variables (typically loaded from a .env file).
+Everything that is *environment* specific (exchange, keys, symbols, paths,
+mode) is read from environment variables / `.env` here and nowhere else.
 
-Nothing in this module ever logs or prints the API secret/key values.
+Everything that is *strategy / risk* specific lives in the SQLite settings
+table (see ``state_manager.py``) so it can be changed live from the
+dashboard. ``DEFAULT_SETTINGS`` below is only the seed used the first time a
+key is missing from the database; the running bot always reads the value
+from the database.
 """
+
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-try:
-    # Optional dependency: if python-dotenv isn't installed, we simply rely
-    # on the environment already being populated (e.g. by the shell, or by
-    # a process manager / systemd unit / docker-compose env_file).
+try:  # python-dotenv is optional at import time (tests do not need it)
     from dotenv import load_dotenv
+except ImportError:  # pragma: no cover
+    load_dotenv = None
 
-    load_dotenv()
-except ImportError:  # pragma: no cover - exercised only when dotenv missing
-    pass
+
+LIVE_CONFIRM_PHRASE = "I_UNDERSTAND_THE_RISKS"
 
 
 def _env_bool(name: str, default: bool) -> bool:
-    val = os.getenv(name)
-    if val is None:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
         return default
-    return val.strip().lower() in ("1", "true", "yes", "on")
-
-
-def _env_float(name: str, default: float) -> float:
-    val = os.getenv(name)
-    if val is None or val.strip() == "":
-        return default
-    return float(val)
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _env_int(name: str, default: int) -> int:
-    val = os.getenv(name)
-    if val is None or val.strip() == "":
-        return default
-    return int(val)
+    raw = os.getenv(name)
+    return int(raw) if raw not in (None, "") else default
 
 
-@dataclass(frozen=True)
-class ExchangeConfig:
-    exchange_id: str = os.getenv("EXCHANGE_ID", "binance")
-    api_key: str = os.getenv("EXCHANGE_API_KEY", "")
-    api_secret: str = os.getenv("EXCHANGE_API_SECRET", "")
-    # Some exchanges (e.g. some ccxt integrations for KuCoin, OKX) need a
-    # third credential, commonly called a "password" or "passphrase".
-    api_password: str = os.getenv("EXCHANGE_API_PASSWORD", "")
-    sandbox: bool = _env_bool("EXCHANGE_SANDBOX", True)
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    return float(raw) if raw not in (None, "") else default
 
-    def __repr__(self) -> str:  # never leak secrets in logs/repr
+
+def _env_str(name: str, default: str = "") -> str:
+    raw = os.getenv(name)
+    return raw.strip() if raw not in (None, "") else default
+
+
+# --------------------------------------------------------------------------
+# Live-editable strategy / risk parameters (seed values only).
+# Each entry: key -> (default value, description). The type of the default
+# value is the type enforced when the setting is edited.
+# --------------------------------------------------------------------------
+DEFAULT_SETTINGS: Dict[str, tuple] = {
+    # --- general switches
+    "trading_enabled": (True, "Yeni pozisyon açılışına izin ver (kill switch)."),
+    "allow_short": (False, "Short pozisyonlara izin ver (spot piyasada canlıda desteklenmez)."),
+    # --- trend filter
+    "ema_trend_period": (200, "Trend filtresi EMA periyodu."),
+    # --- momentum
+    "rsi_period": (14, "RSI periyodu."),
+    "rsi_long_min": (45.0, "Long için RSI alt sınırı."),
+    "rsi_long_max": (70.0, "Long için RSI üst sınırı (aşırı alım filtresi)."),
+    "rsi_short_min": (30.0, "Short için RSI alt sınırı (aşırı satım filtresi)."),
+    "rsi_short_max": (55.0, "Short için RSI üst sınırı."),
+    # --- MACD + volume
+    "macd_fast": (12, "MACD hızlı EMA periyodu."),
+    "macd_slow": (26, "MACD yavaş EMA periyodu."),
+    "macd_signal": (9, "MACD sinyal periyodu."),
+    "macd_cross_lookback": (3, "MACD kesişimi son kaç kapanmış mum içinde olmalı."),
+    "volume_ma_period": (20, "Hacim ortalaması periyodu."),
+    "volume_factor": (1.2, "Hacim, ortalamanın en az kaç katı olmalı."),
+    # --- volatility breakout
+    "atr_period": (14, "ATR periyodu."),
+    "donchian_period": (20, "Donchian kanal periyodu."),
+    "breakout_atr_buffer": (0.0, "Kırılımın kanalı en az kaç ATR aşması gerektiği."),
+    # --- confirmation logic
+    "min_confirmations": (3, "Trend filtresine ek olarak gereken teyit sayısı (momentum, MACD+hacim, kırılım: 1-3)."),
+    "exit_on_trend_flip": (True, "Fiyat EMA trend çizgisinin ters tarafında kapanınca pozisyonu kapat."),
+    # --- risk
+    "risk_per_trade_pct": (1.0, "İşlem başına riske edilen özsermaye yüzdesi."),
+    "atr_sl_multiplier": (1.5, "Stop-loss mesafesi = ATR x bu katsayı."),
+    "risk_reward_ratio": (2.0, "Take-profit mesafesi = stop mesafesi x bu oran."),
+    "trailing_enabled": (True, "Trailing stop aktif."),
+    "trailing_atr_multiplier": (2.0, "Trailing stop mesafesi = ATR x bu katsayı."),
+    "trailing_activation_r": (1.0, "Trailing stop, fiyat kaç R lehimize gidince devreye girsin (0 = hemen)."),
+    "daily_loss_limit_pct": (5.0, "Günlük zarar bu yüzdeyi aşarsa UTC gece yarısına kadar yeni pozisyon açma."),
+    "max_open_positions": (3, "Maksimum eşzamanlı açık pozisyon."),
+    "max_symbol_exposure_pct": (25.0, "Sembol başına maksimum pozisyon büyüklüğü (özsermaye yüzdesi)."),
+}
+
+
+def default_settings_values() -> Dict[str, Any]:
+    return {k: v[0] for k, v in DEFAULT_SETTINGS.items()}
+
+
+@dataclass
+class Config:
+    # exchange
+    exchange_id: str = "binance"
+    market_type: str = "spot"  # spot | future | swap
+    use_testnet: bool = False
+    api_key: str = field(default="", repr=False)
+    api_secret: str = field(default="", repr=False)
+    api_password: str = field(default="", repr=False)
+
+    # mode
+    paper_trading: bool = True
+    live_confirm: str = field(default="", repr=False)
+
+    # market
+    symbols: List[str] = field(default_factory=lambda: ["BTC/USDT"])
+    timeframe: str = "1h"
+    ohlcv_limit: int = 500
+
+    # engine
+    poll_interval_sec: int = 30
+    db_path: str = "data/tradingbot.db"
+    log_dir: str = "logs"
+    log_level: str = "INFO"
+
+    # paper account
+    paper_starting_balance: float = 10_000.0
+    paper_fee_rate: float = 0.001  # 0.1 %
+    paper_slippage_bps: float = 5.0  # 0.05 %
+
+    # retry
+    max_retries: int = 5
+    retry_base_delay: float = 1.0
+    retry_max_delay: float = 30.0
+
+    @property
+    def quote_currency(self) -> str:
+        return self.symbols[0].split("/")[1].split(":")[0] if self.symbols else "USDT"
+
+    @property
+    def mode(self) -> str:
+        return "paper" if self.paper_trading else "live"
+
+    def secrets(self) -> List[str]:
+        """Values that must never appear in logs."""
+        return [s for s in (self.api_key, self.api_secret, self.api_password) if s]
+
+    def validate(self) -> List[str]:
+        """Return a list of problems. Empty list means the config is usable."""
+        problems: List[str] = []
+        if not self.symbols:
+            problems.append("SYMBOLS boş olamaz.")
+        if self.poll_interval_sec < 1:
+            problems.append("POLL_INTERVAL_SEC en az 1 olmalı.")
+        if self.market_type not in {"spot", "future", "swap", "margin"}:
+            problems.append(f"MARKET_TYPE geçersiz: {self.market_type}")
+        if not self.paper_trading:
+            if not (self.api_key and self.api_secret):
+                problems.append("Canlı mod için API_KEY ve API_SECRET .env içinde tanımlı olmalı.")
+            if self.live_confirm != LIVE_CONFIRM_PHRASE:
+                problems.append(
+                    "Canlı mod bilinçli bir adım gerektirir: .env içinde "
+                    f"LIVE_TRADING_CONFIRM={LIVE_CONFIRM_PHRASE} ayarlayın."
+                )
+        return problems
+
+    def __repr__(self) -> str:  # never print secrets
         return (
-            f"ExchangeConfig(exchange_id={self.exchange_id!r}, "
-            f"sandbox={self.sandbox!r}, api_key=***, api_secret=***, "
-            f"api_password=***)"
+            f"Config(exchange_id={self.exchange_id!r}, market_type={self.market_type!r}, "
+            f"testnet={self.use_testnet}, mode={self.mode!r}, symbols={self.symbols}, "
+            f"timeframe={self.timeframe!r}, db_path={self.db_path!r}, "
+            f"api_key={'***' if self.api_key else 'unset'})"
         )
 
     __str__ = __repr__
 
 
-@dataclass(frozen=True)
-class RetryConfig:
-    max_retries: int = _env_int("RETRY_MAX_ATTEMPTS", 5)
-    base_delay_seconds: float = _env_float("RETRY_BASE_DELAY", 1.0)
-    max_delay_seconds: float = _env_float("RETRY_MAX_DELAY", 30.0)
-    jitter_seconds: float = _env_float("RETRY_JITTER", 0.5)
+def load_config(env_file: Optional[str] = ".env") -> Config:
+    """Build a Config from environment variables (optionally loading .env)."""
+    if load_dotenv is not None and env_file and os.path.exists(env_file):
+        load_dotenv(env_file, override=False)
 
-
-@dataclass(frozen=True)
-class TradingConfig:
-    symbol: str = os.getenv("SYMBOL", "BTC/USDT")
-    timeframe: str = os.getenv("TIMEFRAME", "15m")
-    # How many closed candles of history to keep/fetch for indicator warmup.
-    candle_lookback: int = _env_int("CANDLE_LOOKBACK", 300)
-    # How often (seconds) the main loop checks whether a new candle closed.
-    poll_interval_seconds: int = _env_int("POLL_INTERVAL_SECONDS", 5)
-
-
-@dataclass(frozen=True)
-class RiskDefaults:
-    """
-    Defaults used only to *seed* the state_manager settings table the first
-    time the database is created. After that, these values live in SQLite
-    and are editable live from the dashboard - changing them here has no
-    effect on an existing database.
-    """
-    risk_per_trade_pct: float = _env_float("RISK_PER_TRADE_PCT", 1.0)
-    risk_reward_ratio: float = _env_float("RISK_REWARD_RATIO", 2.0)
-    atr_period: int = _env_int("ATR_PERIOD", 14)
-    atr_sl_multiplier: float = _env_float("ATR_SL_MULTIPLIER", 1.5)
-    trailing_atr_multiplier: float = _env_float("TRAILING_ATR_MULTIPLIER", 1.5)
-    max_daily_drawdown_pct: float = _env_float("MAX_DAILY_DRAWDOWN_PCT", 5.0)
-    max_concurrent_positions: int = _env_int("MAX_CONCURRENT_POSITIONS", 3)
-    max_exposure_per_symbol_pct: float = _env_float(
-        "MAX_EXPOSURE_PER_SYMBOL_PCT", 20.0
+    symbols = [s.strip() for s in _env_str("SYMBOLS", "BTC/USDT").split(",") if s.strip()]
+    return Config(
+        exchange_id=_env_str("EXCHANGE_ID", "binance").lower(),
+        market_type=_env_str("MARKET_TYPE", "spot").lower(),
+        use_testnet=_env_bool("USE_TESTNET", False),
+        api_key=_env_str("API_KEY"),
+        api_secret=_env_str("API_SECRET"),
+        api_password=_env_str("API_PASSWORD"),
+        paper_trading=_env_bool("PAPER_TRADING", True),
+        live_confirm=_env_str("LIVE_TRADING_CONFIRM"),
+        symbols=symbols,
+        timeframe=_env_str("TIMEFRAME", "1h"),
+        ohlcv_limit=_env_int("OHLCV_LIMIT", 500),
+        poll_interval_sec=_env_int("POLL_INTERVAL_SEC", 30),
+        db_path=_env_str("DB_PATH", "data/tradingbot.db"),
+        log_dir=_env_str("LOG_DIR", "logs"),
+        log_level=_env_str("LOG_LEVEL", "INFO").upper(),
+        paper_starting_balance=_env_float("PAPER_STARTING_BALANCE", 10_000.0),
+        paper_fee_rate=_env_float("PAPER_FEE_RATE", 0.001),
+        paper_slippage_bps=_env_float("PAPER_SLIPPAGE_BPS", 5.0),
+        max_retries=_env_int("MAX_RETRIES", 5),
+        retry_base_delay=_env_float("RETRY_BASE_DELAY", 1.0),
+        retry_max_delay=_env_float("RETRY_MAX_DELAY", 30.0),
     )
-    ema_trend_period: int = _env_int("EMA_TREND_PERIOD", 200)
-    rsi_period: int = _env_int("RSI_PERIOD", 14)
-    rsi_lower: float = _env_float("RSI_LOWER", 40.0)
-    rsi_upper: float = _env_float("RSI_UPPER", 70.0)
-    macd_fast: int = _env_int("MACD_FAST", 12)
-    macd_slow: int = _env_int("MACD_SLOW", 26)
-    macd_signal: int = _env_int("MACD_SIGNAL", 9)
-    volume_ma_period: int = _env_int("VOLUME_MA_PERIOD", 20)
-    volume_confirmation_multiplier: float = _env_float(
-        "VOLUME_CONFIRMATION_MULTIPLIER", 1.2
-    )
-    donchian_period: int = _env_int("DONCHIAN_PERIOD", 20)
-
-
-@dataclass(frozen=True)
-class AccountConfig:
-    # Starting paper balance, in quote currency (e.g. USDT).
-    paper_starting_balance: float = _env_float("PAPER_STARTING_BALANCE", 10_000.0)
-    quote_currency: str = os.getenv("QUOTE_CURRENCY", "USDT")
-
-
-@dataclass(frozen=True)
-class PathsConfig:
-    base_dir: Path = Path(os.getenv("BOT_BASE_DIR", str(Path(__file__).resolve().parent)))
-    data_dir: Path = field(init=False)
-    db_path: Path = field(init=False)
-    log_dir: Path = field(init=False)
-
-    def __post_init__(self):
-        object.__setattr__(self, "data_dir", self.base_dir / "data")
-        object.__setattr__(self, "db_path", self.data_dir / os.getenv("DB_FILENAME", "trading_bot.sqlite3"))
-        object.__setattr__(self, "log_dir", self.base_dir / "logs")
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.log_dir.mkdir(parents=True, exist_ok=True)
-
-
-@dataclass(frozen=True)
-class Config:
-    paper_trading: bool = _env_bool("PAPER_TRADING", True)
-    log_level: str = os.getenv("LOG_LEVEL", "INFO")
-    exchange: ExchangeConfig = field(default_factory=ExchangeConfig)
-    retry: RetryConfig = field(default_factory=RetryConfig)
-    trading: TradingConfig = field(default_factory=TradingConfig)
-    risk_defaults: RiskDefaults = field(default_factory=RiskDefaults)
-    account: AccountConfig = field(default_factory=AccountConfig)
-    paths: PathsConfig = field(default_factory=PathsConfig)
-
-    def validate(self) -> None:
-        """Fail fast on obviously-broken configuration."""
-        if not self.paper_trading:
-            if not self.exchange.api_key or not self.exchange.api_secret:
-                raise ValueError(
-                    "PAPER_TRADING=False requires EXCHANGE_API_KEY and "
-                    "EXCHANGE_API_SECRET to be set."
-                )
-        if self.risk_defaults.risk_per_trade_pct <= 0:
-            raise ValueError("RISK_PER_TRADE_PCT must be > 0")
-        if self.risk_defaults.max_daily_drawdown_pct <= 0:
-            raise ValueError("MAX_DAILY_DRAWDOWN_PCT must be > 0")
-        if self.risk_defaults.max_concurrent_positions <= 0:
-            raise ValueError("MAX_CONCURRENT_POSITIONS must be > 0")
-
-
-config = Config()
