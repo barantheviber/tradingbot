@@ -242,6 +242,41 @@ class ExchangeClient:
         return self.call("create_order", symbol, "market", side, amount_p, None, params,
                          retry_on=ORDER_SAFE_RETRY_ERRORS)
 
+    def cancel_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
+        return self.call("cancel_order", order_id, symbol)
+
+    def supports_stop_orders(self) -> bool:
+        has = getattr(self.exchange, "has", None) or {}
+        return any(has.get(k) for k in ("createStopLossOrder", "createStopMarketOrder", "createStopOrder"))
+
+    def create_stop_order(
+        self, symbol: str, side: str, amount: float, stop_price: float, params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Stop-market order that rests on the exchange and fires at ``stop_price``.
+
+        Raises ``ccxt.NotSupported`` when the exchange offers no stop order type.
+        Like market orders, it is only retried on errors that guarantee rejection.
+        """
+        self._ensure_markets()
+        params = dict(params or {})
+        params.setdefault("clientOrderId", f"tbs-{uuid.uuid4().hex[:19]}")
+        amount_p = float(self.exchange.amount_to_precision(symbol, amount))
+        price_p = float(self.exchange.price_to_precision(symbol, stop_price))
+        has = getattr(self.exchange, "has", None) or {}
+        log.info("Placing exchange stop order", extra={"symbol": symbol, "side": side, "amount": amount_p,
+                                                       "stop_price": price_p,
+                                                       "client_order_id": params["clientOrderId"]})
+        if has.get("createStopLossOrder"):
+            return self.call("create_stop_loss_order", symbol, "market", side, amount_p, None, price_p, params,
+                             retry_on=ORDER_SAFE_RETRY_ERRORS)
+        if has.get("createStopMarketOrder"):
+            return self.call("create_stop_market_order", symbol, side, amount_p, price_p, params,
+                             retry_on=ORDER_SAFE_RETRY_ERRORS)
+        if has.get("createStopOrder"):
+            return self.call("create_stop_order", symbol, "market", side, amount_p, None, price_p, params,
+                             retry_on=ORDER_SAFE_RETRY_ERRORS)
+        raise ccxt.NotSupported(f"{self.exchange_id} has no stop order type in ccxt")
+
     # ------------------------------------------------------------ precision
     def amount_to_precision(self, symbol: str, amount: float) -> float:
         self._ensure_markets()

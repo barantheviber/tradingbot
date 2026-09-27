@@ -101,6 +101,7 @@ class BotEngine:
                 self._interruptible_sleep(30)
                 if self.stopping:
                     raise
+        self._sync_exchange_stops()  # a stop that filled while the bot was off is recorded now
         self.state.set_state("bot_status", {"status": "running", "mode": self.executor.mode,
                                             "pid_started": time.time()})
 
@@ -148,6 +149,7 @@ class BotEngine:
     def tick(self) -> None:
         settings = self.state.get_all_settings()
         params = StrategyParams.from_settings(settings)
+        self._sync_exchange_stops()
 
         # Positions whose symbol was removed from SYMBOLS (e.g. .env edited while a
         # position was open) still get their stop-loss / take-profit enforced.
@@ -198,11 +200,21 @@ class BotEngine:
         self.state.get_or_create_day_start_equity(mode, equity)
         self.state.prune_events()
 
+    def _sync_exchange_stops(self) -> None:
+        try:
+            self.executor.sync_protective_stops()
+        except (ccxt.AuthenticationError, ccxt.PermissionDenied):
+            raise
+        except Exception as exc:  # never block the software stops below
+            log.warning("Exchange stop sync failed", extra={"error": type(exc).__name__})
+
     def _enforce_stops(self, symbol: str, price: float) -> None:
         for pos in self.executor.open_positions():
             if pos["symbol"] != symbol:
                 continue
-            reason = check_exit(pos["side"], price, pos["stop_loss"], pos["take_profit"])
+            # an exit whose order filled only partly is finished first
+            reason = self.executor.pending_close_reason(pos)
+            reason = reason or check_exit(pos["side"], price, pos["stop_loss"], pos["take_profit"])
             if reason:
                 log.info("Exit level hit", extra={"symbol": symbol, "position_id": pos["id"], "reason": reason,
                                                   "price": price, "stop": pos["stop_loss"],
@@ -269,6 +281,12 @@ class BotEngine:
             self.state.log_event("INFO", "trailing", f"Stop {pos['stop_loss']:.6g} -> {new_stop:.6g}",
                                  symbol=pos["symbol"], data={"position_id": pos["id"]})
         self.state.update_position(pos["id"], **updates)
+        if "stop_loss" in updates:
+            try:
+                self.executor.on_stop_moved(self.state.get_position(pos["id"]))
+            except ccxt.BaseError as exc:  # next loop's sync retries; the software stop is already updated
+                log.warning("Could not move exchange stop", extra={"position_id": pos["id"],
+                                                                   "error": type(exc).__name__})
 
     def _try_entry(self, symbol: str, sig, price: float, settings: Mapping[str, Any]) -> None:
         def skip(reason: str, level: str = "INFO") -> None:

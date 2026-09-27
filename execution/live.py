@@ -1,16 +1,27 @@
 """Real order execution through ``ExchangeClient``.
 
-Stops and targets are enforced by the bot on every loop (software stops), so
-the bot must be running for them to trigger. Keep that in mind before going
-live and prefer testnet (USE_TESTNET=true) first.
+Stops and targets are enforced by the bot on every loop (software stops).
+In addition, when the ``exchange_stop_enabled`` setting is on (default) and
+the exchange supports it, a stop-market order rests on the exchange at the
+position's stop level, so the position stays protected while the bot is off.
+The bot cancels it before any exit it starts itself, replaces it when the
+trailing stop moves, and records it as the exit if it executed. Take-profit is
+still bot-managed. Prefer testnet (USE_TESTNET=true) before going live.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
+
+import time
+
+import ccxt
 
 from execution.base import BaseExecutionClient, Fill, check_market_limits
 from risk_manager import unrealized_pnl
+
+
+STOP_RETRY_SEC = 600  # wait before re-trying a stop order the exchange refused
 
 
 class LiveExecutionClient(BaseExecutionClient):
@@ -42,14 +53,22 @@ class LiveExecutionClient(BaseExecutionClient):
             params["reduceOnly"] = True
         if reduce_only and self.market_type == "spot" and side == "sell":
             quantity = self._sellable_quantity(symbol, quantity)
+        requested = self.normalize_quantity(symbol, quantity) or quantity
         order = self.exchange.create_market_order(symbol, side, quantity, params)
-        if not order.get("average") and order.get("id"):
+        if order.get("id") and (not order.get("average") or order.get("filled") is None
+                                or order.get("status") == "open"):
             try:
-                order = {**order, **{k: v for k, v in self.exchange.fetch_order(order["id"], symbol).items() if v}}
+                fetched = self.exchange.fetch_order(order["id"], symbol)
+                order = {**order, **{k: v for k, v in fetched.items() if v is not None}}
             except Exception as exc:  # fill details are best-effort; the order itself went through
                 self.log.warning("Could not fetch order details", extra={"symbol": symbol, "error": str(exc)})
         price = float(order.get("average") or order.get("price") or reference_price)
-        filled = float(order.get("filled") or quantity)
+        if order.get("filled") is None:
+            self.log.warning("Exchange did not report the filled amount; assuming a full fill",
+                             extra={"symbol": symbol, "order_id": order.get("id")})
+            filled = requested
+        else:
+            filled = float(order["filled"])
         fee = self._fee_in_quote(order, symbol, price, filled)
         base_fee = self._fee_in_base(order, symbol)
         if side == "buy" and self.market_type == "spot" and 0 < base_fee < filled:
@@ -57,7 +76,7 @@ class LiveExecutionClient(BaseExecutionClient):
             # `filled`. Track what we actually hold, or the closing sell would ask for
             # more than the balance and fail with InsufficientFunds on every loop.
             filled -= base_fee
-        return Fill(price=price, quantity=filled, fee=fee,
+        return Fill(price=price, quantity=filled, fee=fee, requested=requested,
                     order_id=str(order.get("id")) if order.get("id") else None)
 
     def _sellable_quantity(self, symbol: str, quantity: float) -> float:
@@ -130,3 +149,134 @@ class LiveExecutionClient(BaseExecutionClient):
                 self.log.warning(msg)
                 self.state.log_event("WARNING", "reconcile", msg, data={"asset": asset, "expected": qty,
                                                                         "held": held})
+
+    # ------------------------------------------------- exchange-side stops
+    def _exchange_stops_enabled(self) -> bool:
+        return bool(self.state.get_setting("exchange_stop_enabled", True))
+
+    def _stop_key(self, position: Mapping[str, Any]) -> str:
+        return f"stop_order:{position['id']}"
+
+    def protect_position(self, position: Mapping[str, Any]) -> None:
+        """Rest a stop-market order on the exchange at the position's stop level,
+        so it stays protected while the bot is off. On failure the bot keeps
+        enforcing the stop itself (software stop) and says so once."""
+        if not position or position.get("status") != "open" or not self._exchange_stops_enabled():
+            return
+        if self.state.get_state(self._stop_key(position)):
+            return
+        if time.time() < float(self.state.get_state(f"stop_retry_after:{position['id']}", 0) or 0):
+            return
+        symbol = position["symbol"]
+        if not self.exchange.supports_stop_orders():
+            self._warn_once(f"stop_unsupported:{symbol}", symbol,
+                            "Exchange stop orders are not supported here; the bot enforces stops itself "
+                            "and positions are unprotected while it is off")
+            return
+        side = "sell" if position["side"] == "long" else "buy"
+        params: Dict[str, Any] = {"reduceOnly": True} if self.market_type != "spot" else {}
+        try:
+            order = self.exchange.create_stop_order(symbol, side, float(position["quantity"]),
+                                                    float(position["stop_loss"]), params)
+        except ccxt.NotSupported as exc:
+            self._warn_once(f"stop_unsupported:{symbol}", symbol,
+                            f"Exchange stop order not supported ({exc}); the bot enforces stops itself")
+            return
+        except ccxt.BaseError as exc:
+            retry_key = f"stop_retry_after:{position['id']}"
+            if time.time() >= float(self.state.get_state(retry_key, 0) or 0):
+                self._decision("WARNING", symbol, f"#{position['id']}: could not place exchange stop "
+                                                  f"({type(exc).__name__}: {exc}); bot-managed stop stays active, "
+                                                  "retrying", {"position_id": position["id"]})
+            self.state.set_state(retry_key, time.time() + STOP_RETRY_SEC)
+            return
+        self.state.set_state(self._stop_key(position), {"id": str(order.get("id")),
+                                                        "stop": float(position["stop_loss"]),
+                                                        "quantity": float(position["quantity"])})
+        self._decision("INFO", symbol, f"#{position['id']}: exchange stop placed at {position['stop_loss']:.6g}",
+                       {"position_id": position["id"], "order_id": order.get("id")})
+
+    def _release_protective_stop(self, position: Mapping[str, Any]) -> Optional[Fill]:
+        """Cancel the resting stop. If it already executed, return its fill so the
+        caller records that close instead of sending a second order. Errors other
+        than 'order not found' propagate, so the close is retried next loop rather
+        than risking a double exit."""
+        info = self.state.get_state(self._stop_key(position))
+        if not info:
+            return None
+        symbol = position["symbol"]
+        try:
+            self.exchange.cancel_order(info["id"], symbol)
+        except ccxt.OrderNotFound:
+            pass  # already executed or gone: look at it below
+        else:
+            self.state.delete_state(self._stop_key(position))
+            return None
+        order = self.exchange.fetch_order(info["id"], symbol)
+        self.state.delete_state(self._stop_key(position))
+        return self._stop_fill(order, position)
+
+    def _stop_fill(self, order: Mapping[str, Any], position: Mapping[str, Any]) -> Optional[Fill]:
+        filled = float(order.get("filled") or 0.0)
+        if filled <= 0:
+            return None
+        price = float(order.get("average") or order.get("price") or order.get("stopPrice")
+                      or position["stop_loss"])
+        return Fill(price=price, quantity=filled, fee=self._fee_in_quote(order, position["symbol"], price, filled),
+                    order_id=str(order.get("id")) if order.get("id") else None,
+                    requested=float(position["quantity"]))
+
+    def on_stop_moved(self, position: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+        if not self.state.get_state(self._stop_key(position)):
+            self.protect_position(position)
+            return None
+        fill = self._release_protective_stop(position)
+        if fill is not None:
+            return self._record_close(position, fill, "exchange_stop")
+        self.protect_position(position)
+        return None
+
+    def sync_protective_stops(self) -> None:
+        """Run every loop and at startup: a stop that executed on the exchange
+        (e.g. while the bot was off) is recorded as a close at its fill price; a
+        stop that disappeared (cancelled by hand, expired) or was never placed is
+        placed again; a stop for the wrong amount or level is replaced."""
+        for position in self.open_positions():
+            info = self.state.get_state(self._stop_key(position))
+            if not info:
+                self.protect_position(position)
+                continue
+            try:
+                order = self.exchange.fetch_order(info["id"], position["symbol"])
+            except ccxt.OrderNotFound:
+                order = {"status": "canceled", "filled": 0}
+            except ccxt.BaseError as exc:
+                self.log.warning("Could not check exchange stop", extra={"position_id": position["id"],
+                                                                         "error": type(exc).__name__})
+                continue
+            status = order.get("status")
+            if status == "closed" or float(order.get("filled") or 0.0) > 0:
+                if status == "open":  # partly executed and still working: settle it first
+                    fill = self._release_protective_stop(position)
+                else:
+                    self.state.delete_state(self._stop_key(position))
+                    fill = self._stop_fill(order, position)
+                if fill is not None:
+                    self._decision("WARNING", position["symbol"],
+                                   f"#{position['id']}: exchange stop executed at {fill.price:.6g}",
+                                   {"position_id": position["id"], "filled": fill.quantity})
+                    self._record_close(position, fill, "exchange_stop")
+                    continue
+            if status in ("canceled", "cancelled", "expired", "rejected"):
+                self.state.delete_state(self._stop_key(position))
+                self.protect_position(position)
+                continue
+            if (abs(float(info.get("stop", 0)) - float(position["stop_loss"])) > 1e-12
+                    or abs(float(info.get("quantity", 0)) - float(position["quantity"])) > 1e-12):
+                self.on_stop_moved(position)
+
+    def _warn_once(self, key: str, symbol: str, message: str) -> None:
+        if self.state.get_state(key):
+            return
+        self.state.set_state(key, True)
+        self._decision("WARNING", symbol, message)
