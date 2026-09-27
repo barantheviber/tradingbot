@@ -75,7 +75,12 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Trading Bot",
       "runAfterFinish": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "installerLanguages": [
+        "tr_TR"
+      ],
+      "language": "1055",
+      "multiLanguageInstaller": false
     }
   }
 }

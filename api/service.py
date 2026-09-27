@@ -128,7 +128,7 @@ class BotReadModel:
         position is not open in the bot's current mode."""
         pos = self.state.get_position(position_id)
         if not pos or pos["status"] != "open" or pos["mode"] != self.mode:
-            raise LookupError(f"position {position_id} is not open")
+            raise LookupError(f"#{position_id} numaralı açık pozisyon yok")
         for cmd in self.state.get_pending_commands():
             if cmd["command"] == "close_position" and cmd["payload"].get("position_id") == position_id:
                 return {"command_id": cmd["id"], "status": "pending", "already_queued": True}

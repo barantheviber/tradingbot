@@ -92,7 +92,7 @@ def create_app(config: Config, state: StateManager, candle_factory: Optional[Cal
         header = request.headers.get("authorization", "")
         scheme, _, token = header.partition(" ")
         if scheme.lower() != "bearer" or not _token_ok(config.api_token, token.strip()):
-            raise HTTPException(status_code=401, detail="invalid or missing token",
+            raise HTTPException(status_code=401, detail="Token geçersiz veya eksik",
                                 headers={"WWW-Authenticate": "Bearer"})
 
     auth = [Depends(require_token)]
@@ -117,7 +117,7 @@ def create_app(config: Config, state: StateManager, candle_factory: Optional[Cal
     def get_command(command_id: int) -> Dict[str, Any]:
         cmd = model.command(command_id)
         if cmd is None:
-            raise HTTPException(status_code=404, detail="command not found")
+            raise HTTPException(status_code=404, detail="Komut bulunamadı")
         return cmd
 
     @app.get("/api/trades", dependencies=auth)
@@ -134,14 +134,14 @@ def create_app(config: Config, state: StateManager, candle_factory: Optional[Cal
         symbol = symbol or config.symbols[0]
         timeframe = timeframe or config.timeframe
         if symbol not in config.symbols:
-            raise HTTPException(status_code=400, detail=f"symbol must be one of {config.symbols}")
+            raise HTTPException(status_code=400, detail=f"Sembol şunlardan biri olmalı: {', '.join(config.symbols)}")
         if not _TIMEFRAME_RE.match(timeframe):
-            raise HTTPException(status_code=400, detail="invalid timeframe")
+            raise HTTPException(status_code=400, detail="Geçersiz zaman dilimi")
         try:
             rows = candles.get(symbol, timeframe, limit)
         except Exception as exc:
             log.warning("Candle fetch failed", extra={"symbol": symbol, "error": type(exc).__name__})
-            raise HTTPException(status_code=502, detail=f"exchange error: {type(exc).__name__}")
+            raise HTTPException(status_code=502, detail=f"Borsaya ulaşılamadı ({type(exc).__name__}); internet bağlantısını kontrol edin")
         return {"symbol": symbol, "timeframe": timeframe, "candles": rows}
 
     @app.get("/api/settings", dependencies=auth)
@@ -151,11 +151,11 @@ def create_app(config: Config, state: StateManager, candle_factory: Optional[Cal
     @app.put("/api/settings/{key}", dependencies=auth)
     def put_setting(key: str, body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         if "value" not in body:
-            raise HTTPException(status_code=422, detail='body must be {"value": ...}')
+            raise HTTPException(status_code=422, detail='İstek gövdesi {"value": ...} biçiminde olmalı')
         try:
             value = validate_setting(key, body["value"], state.get_all_settings())
         except UnknownSettingError:
-            raise HTTPException(status_code=404, detail=f"unknown setting {key!r}")
+            raise HTTPException(status_code=404, detail=f"Bilinmeyen ayar: {key}")
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=f"{key}: {exc}")
         stored = state.set_setting(key, value)

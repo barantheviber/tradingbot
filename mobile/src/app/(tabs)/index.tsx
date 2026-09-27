@@ -5,6 +5,7 @@ import { api } from '../../api/client';
 import type { Candle, Pnl } from '../../api/types';
 import { BotControl } from '../../components/BotControl';
 import { CandleChart } from '../../components/CandleChart';
+import { WelcomeCard } from '../../components/WelcomeCard';
 import { Banner, Card, Stat, styles } from '../../components/ui';
 import { useConnection, useRequiredConnection } from '../../lib/connection';
 import { age, num, pct, signed } from '../../lib/format';
@@ -58,6 +59,7 @@ export default function OverviewScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
     >
       {local ? <BotControl positions={positions} /> : null}
+      {local ? <WelcomeCard timeframe={status?.timeframe ?? null} /> : null}
       {error && !local ? <Banner tone="error" text={error} /> : null}
       {status && !status.bot_running && !local ? (
         <Banner text={`Bot çalışmıyor görünüyor (${age(status.heartbeat_age_sec)}). Kapatma komutları bot açılınca işlenir.`} />
