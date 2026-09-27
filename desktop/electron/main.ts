@@ -5,7 +5,7 @@ import type { ApiCall, ConnectionInput, Position, WsState } from "../shared/type
 import { performCall } from "./apiClient";
 import { normaliseBaseUrl } from "./apiRoutes";
 import { getPublicConfig, getToken, saveConfig } from "./configStore";
-import { LOCAL_BASE_URL, LocalBot } from "./localBot";
+import { dataDir, LOCAL_BASE_URL, LocalBot } from "./localBot";
 import { LiveFeed } from "./wsClient";
 
 let win: BrowserWindow | null = null;
@@ -140,6 +140,9 @@ ipcMain.handle("localBot:saveSetup", async (_e, setup: LocalSetup) => {
 ipcMain.handle("localBot:start", async () => {
   if (managed) await localBot.start();
   return localState();
+});
+ipcMain.handle("localBot:openLogFolder", async () => {
+  if (managed) await shell.openPath(path.join(dataDir(), "logs"));
 });
 ipcMain.handle("localBot:stop", async () => {
   if (managed) await localBot.stop();

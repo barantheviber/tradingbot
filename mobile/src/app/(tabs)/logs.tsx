@@ -7,6 +7,8 @@ import { colors } from '../../lib/theme';
 
 const CATEGORIES = ['hepsi', 'trade', 'decision', 'signal', 'risk', 'trailing', 'error', 'lifecycle', 'settings', 'command'];
 
+const LEVEL_TR: Record<string, string> = { DEBUG: 'Ayrıntı', INFO: 'Bilgi', WARNING: 'Uyarı', ERROR: 'Hata', CRITICAL: 'Kritik' };
+
 function levelColor(level: string): string {
   if (level === 'ERROR' || level === 'CRITICAL') return colors.down;
   if (level === 'WARNING') return colors.warn;
@@ -46,7 +48,7 @@ export default function LogsScreen() {
           <View style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
             <Text style={{ color: colors.muted, fontSize: 11, fontFamily: 'monospace' }}>
               {e.timestamp.replace('T', ' ').replace('+00:00', 'Z')}{' '}
-              <Text style={{ color: levelColor(e.level) }}>{e.level}</Text> {e.category}
+              <Text style={{ color: levelColor(e.level) }}>{LEVEL_TR[e.level] ?? e.level}</Text> {e.category}
               {e.symbol ? ` ${e.symbol}` : ''}
             </Text>
             <Text style={{ color: colors.text, fontSize: 13, fontFamily: 'monospace' }}>{e.message}</Text>

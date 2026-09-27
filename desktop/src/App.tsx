@@ -132,7 +132,7 @@ export default function App() {
         {tab === "overview" && <Overview status={status} positions={positions} onChanged={refresh} showWelcome={local.managed} />}
         {tab === "trades" && <Trades />}
         {tab === "settings" && <Settings />}
-        {tab === "logs" && <Logs logs={logs} onRefresh={refreshLogs} />}
+        {tab === "logs" && <Logs logs={logs} onRefresh={refreshLogs} canOpenFolder={local.managed} />}
         {tab === "setup" && (
           <Setup initial={setup} firstRun={false} botRunning={botUp} onSaved={() => void loadLocal()} />
         )}
