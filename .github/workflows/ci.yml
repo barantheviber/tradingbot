@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Syntax check (py_compile)
+        run: python -m py_compile $(git ls-files '*.py')
+      - name: Unit tests
+        run: python -m pytest -q
+      - name: Backtest smoke test (offline, synthetic data)
+        run: python backtest.py --synthetic 3000 --set min_confirmations=2
