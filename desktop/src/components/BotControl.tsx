@@ -1,11 +1,12 @@
 import { useState } from "react";
-import type { LocalBotState, Position } from "../../shared/types";
+import type { LocalBotState, Position, Status } from "../../shared/types";
 import { api } from "../api";
 import { followCommand } from "../commands";
 
 interface Props {
   state: LocalBotState;
   positions: Position[];
+  status: Status | null;
   onChanged: () => void;
 }
 
@@ -19,7 +20,7 @@ const PHASE_LABEL: Record<LocalBotState["phase"], string> = {
 };
 
 /** Start/stop for the bot on this computer. Stopping with open positions asks what to do first. */
-export default function BotControl({ state, positions, onChanged }: Props) {
+export default function BotControl({ state, positions, status, onChanged }: Props) {
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +75,9 @@ export default function BotControl({ state, positions, onChanged }: Props) {
   return (
     <div className={`botcontrol botcontrol-${state.phase}`}>
       <span className="botcontrol-label">{busy ?? PHASE_LABEL[state.phase]}</span>
+      {!busy && state.phase === "running" && status && !status.bot_running && (
+        <span className="note">Borsaya bağlanmaya çalışıyor; internet bağlantınızı kontrol edin.</span>
+      )}
       {state.message && <span className="note">{state.message}</span>}
       {error && <span className="neg">{error}</span>}
       <span className="spacer" />

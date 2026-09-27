@@ -120,7 +120,7 @@ export default function App() {
   return (
     <div className="app">
       <StatusBar status={status} wsState={wsState} error={local.managed && !botUp ? null : error} />
-      {local.managed && <BotControl state={local} positions={positions} onChanged={refresh} />}
+      {local.managed && <BotControl state={local} positions={positions} status={status} onChanged={refresh} />}
       <nav className="tabs">
         {tabs.map((t) => (
           <button key={t.id} className={t.id === tab ? "tab active" : "tab"} onClick={() => setTab(t.id)}>
