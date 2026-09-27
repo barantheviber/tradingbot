@@ -88,3 +88,13 @@ button.danger:hover:not(:disabled) { background: #4a1f1f; }
 .log-error .log-level, .log-critical .log-level { color: var(--neg); }
 .log-info .log-level { color: var(--pos); }
 .log-debug { color: #7d8594; }
+
+.botcontrol { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: #141821; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.botcontrol-label { font-weight: 600; }
+.botcontrol-running .botcontrol-label { color: var(--pos); }
+.botcontrol-error .botcontrol-label, .botcontrol-restarting .botcontrol-label { color: var(--neg); }
+.botcontrol-starting .botcontrol-label, .botcontrol-stopping .botcontrol-label { color: var(--warn); }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: flex; align-items: center; justify-content: center; z-index: 10; }
+.modal { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; max-width: 520px; }
+.modal h3 { margin: 0 0 8px; font-size: 15px; }
+.modal .row { flex-wrap: wrap; margin-top: 12px; }

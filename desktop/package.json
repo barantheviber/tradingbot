@@ -12,7 +12,8 @@
     "start": "electron .",
     "test": "tsc -p tsconfig.node.json && node --test \"tests/*.test.mjs\"",
     "dist": "npm run build && electron-builder",
-    "dist:dir": "npm run build && electron-builder --dir"
+    "dist:dir": "npm run build && electron-builder --dir",
+    "dist:win": "npm run build && electron-builder --win nsis --publish never"
   },
   "dependencies": {
     "ws": "^8.18.0"
@@ -33,7 +34,7 @@
   },
   "build": {
     "appId": "com.barantheviber.tradingbot.desktop",
-    "productName": "Trading Bot Desktop",
+    "productName": "Trading Bot",
     "directories": {
       "output": "release"
     },
@@ -45,6 +46,16 @@
     "win": {
       "target": [
         "nsis"
+      ],
+      "artifactName": "TradingBot-Setup-${version}.exe",
+      "extraResources": [
+        {
+          "from": "build-core/tradingbot-core",
+          "to": "core",
+          "filter": [
+            "**/*"
+          ]
+        }
       ]
     },
     "mac": {
@@ -56,6 +67,15 @@
       "target": [
         "AppImage"
       ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Trading Bot",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
     }
   }
 }

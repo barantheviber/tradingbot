@@ -28,6 +28,10 @@ import threading
 from typing import List, Optional
 
 
+if not getattr(sys, "frozen", False):  # running from source: the bot modules live one level up
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 def _watch_stdin() -> None:
     def watch() -> None:
         try:

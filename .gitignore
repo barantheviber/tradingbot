@@ -10,3 +10,7 @@ logs/
 *.db-wal
 *.db-shm
 .streamlit/secrets.toml
+
+# PyInstaller output (packaging/)
+/build/
+/dist/

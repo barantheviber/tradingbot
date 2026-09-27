@@ -1,22 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ConnectionConfig, LogEvent, Position, Status, WsState } from "../shared/types";
+import type { ConnectionConfig, LocalBotState, LocalSetup, LogEvent, Position, Status, WsState } from "../shared/types";
 import { api } from "./api";
+import BotControl from "./components/BotControl";
 import StatusBar from "./components/StatusBar";
 import Connection from "./views/Connection";
 import Logs from "./views/Logs";
 import Overview from "./views/Overview";
 import Settings from "./views/Settings";
+import Setup from "./views/Setup";
 import Trades from "./views/Trades";
 
-type Tab = "overview" | "trades" | "settings" | "logs" | "connection";
+type Tab = "overview" | "trades" | "settings" | "logs" | "setup" | "connection";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Genel bakış" },
   { id: "trades", label: "İşlem geçmişi" },
   { id: "settings", label: "Strateji ayarları" },
   { id: "logs", label: "Loglar" },
-  { id: "connection", label: "Bağlantı" },
 ];
+// The bot runs inside the app; "Bağlantı" only exists when developing against an external API.
+const SETUP_TAB = { id: "setup" as const, label: "Kurulum" };
+const CONNECTION_TAB = { id: "connection" as const, label: "Bağlantı" };
 
 const MAX_LOGS = 1000;
 // Polling keeps the app current when the WebSocket is down; with it open, polling is slower.
@@ -31,6 +35,15 @@ export default function App() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [local, setLocal] = useState<LocalBotState | null>(null);
+  const [setup, setSetup] = useState<LocalSetup | null>(null);
+
+  const loadLocal = useCallback(async () => {
+    const [s, cfg] = await Promise.all([window.desktop.localBot.getState(), window.desktop.localBot.getSetup()]);
+    setLocal(s);
+    setSetup(cfg);
+    setConfig(await window.desktop.getConfig());
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -53,6 +66,8 @@ export default function App() {
 
   useEffect(() => {
     void window.desktop.getConfig().then(setConfig);
+    void loadLocal();
+    const offLocal = window.desktop.localBot.onState(setLocal);
     const offState = window.desktop.onWsState(setWsState);
     void window.desktop.getWsState().then(setWsState);
     const offEvent = window.desktop.onEvent((ev) => {
@@ -67,10 +82,11 @@ export default function App() {
         });
     });
     return () => {
+      offLocal();
       offState();
       offEvent();
     };
-  }, []);
+  }, [loadLocal]);
 
   useEffect(() => {
     if (!config) return;
@@ -84,14 +100,29 @@ export default function App() {
   }, [config, wsState, refresh, refreshLogs]);
 
   useEffect(() => {
-    if (config && !config.hasToken) setTab("connection");
-  }, [config]);
+    if (local && !local.managed && config && !config.hasToken) setTab("connection");
+  }, [config, local]);
+
+  if (!local) return null;
+  if (local.managed && !local.setupDone) {
+    return (
+      <div className="app">
+        <main className="content">
+          <Setup initial={null} firstRun botRunning={false} onSaved={() => void loadLocal()} />
+        </main>
+      </div>
+    );
+  }
+
+  const tabs = [...TABS, local.managed ? SETUP_TAB : CONNECTION_TAB];
+  const botUp = local.phase === "running";
 
   return (
     <div className="app">
-      <StatusBar status={status} wsState={wsState} error={error} />
+      <StatusBar status={status} wsState={wsState} error={local.managed && !botUp ? null : error} />
+      {local.managed && <BotControl state={local} positions={positions} onChanged={refresh} />}
       <nav className="tabs">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button key={t.id} className={t.id === tab ? "tab active" : "tab"} onClick={() => setTab(t.id)}>
             {t.label}
           </button>
@@ -102,6 +133,9 @@ export default function App() {
         {tab === "trades" && <Trades />}
         {tab === "settings" && <Settings />}
         {tab === "logs" && <Logs logs={logs} onRefresh={refreshLogs} />}
+        {tab === "setup" && (
+          <Setup initial={setup} firstRun={false} botRunning={botUp} onSaved={() => void loadLocal()} />
+        )}
         {tab === "connection" && config && (
           <Connection
             config={config}
