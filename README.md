@@ -19,7 +19,7 @@ olma gerekmez. Evdeyken bilgisayardan, dışarıdayken telefondan kullanın, ama
 1. `.exe` dosyasını çalıştırın. Windows "Bilinmeyen yayıncı" derse **Ek bilgi > Yine de çalıştır**'a basın
    (uygulama ücretli bir sertifikayla imzalı değil).
 2. Kurulum bitince uygulama açılır. İlk ekranda borsayı, sembolleri (ör. `BTC/USDT, ETH/USDT`), zaman
-   dilimini ve sanal başlangıç bakiyesini seçip **Kaydet ve botu başlat**'a basın.
+   dilimini (önerilen ve hazır seçili: `4h`) ve sanal başlangıç bakiyesini seçip **Kaydet ve botu başlat**'a basın.
 3. Bot uygulama açıkken çalışır. Uygulamayı kapatırsanız bot durur; tekrar açınca kaldığı yerden devam eder.
 
 **Android kurulumu**
@@ -42,8 +42,9 @@ diğeri bilmez. Bu yüzden:
 3. İki cihazda botu aynı anda çalıştırmayın.
 
 **Sık sorulanlar**
-- *Bot başladı ama hiçbir şey olmuyor.* Bot yalnızca kapanmış mumlarda karar verir; `1h` zaman diliminde
-  ilk karar bir saate kadar sürebilir. **Loglar** sekmesinde ne yaptığını görebilirsiniz.
+- *Bot başladı ama hiçbir şey olmuyor.* Bot yalnızca kapanmış mumlarda karar verir. Önerilen ve hazır seçili
+  `4h` zaman diliminde bu, 4 saatlik mum kapandığında demektir; saatlerce hiç işlem olmaması normaldir.
+  **Loglar** sekmesinde ne yaptığını görebilirsiniz.
 - *"Borsaya bağlanmaya çalışıyor" yazıyor.* İnternet bağlantısını kontrol edin; bot kendiliğinden tekrar dener.
 - *Güncelleme nasıl yapılır?* Yeni sürümü Releases sayfasından indirip kurun. Ayarlarınız ve geçmişiniz korunur.
 

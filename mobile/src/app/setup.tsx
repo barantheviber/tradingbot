@@ -11,6 +11,7 @@ import {
   EXCHANGES,
   parseSymbols,
   TIMEFRAMES,
+  timeframeLabel,
   validateSetup,
   type LocalSetup,
   type MarketType,
@@ -118,7 +119,7 @@ export default function SetupScreen() {
               placeholderTextColor={colors.muted}
             />
             <Text style={styles.text}>Zaman dilimi</Text>
-            <Chips options={TIMEFRAMES.map((t) => ({ id: t, label: t }))} value={timeframe} onChange={setTimeframe} />
+            <Chips options={TIMEFRAMES.map((t) => ({ id: t, label: timeframeLabel(t) }))} value={timeframe} onChange={setTimeframe} />
             <Text style={styles.text}>Sanal başlangıç bakiyesi (USDT)</Text>
             <TextInput style={styles.input} value={balance} onChangeText={setBalance} keyboardType="decimal-pad" />
           </View>
