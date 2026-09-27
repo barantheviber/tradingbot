@@ -16,6 +16,9 @@ Examples::
     python backtest.py --synthetic 3000
     python backtest.py --symbol BTC/USDT --timeframe 1h --days 180
     python backtest.py --csv data/btc_1h.csv --db data/tradingbot.db --set risk_reward_ratio=3
+
+Real market history for many pairs / timeframes: ``scripts/download_history.py``
+and ``scripts/backtest_matrix.py`` (run weekly by the "Real-data backtest" workflow).
 """
 
 from __future__ import annotations
@@ -53,6 +56,14 @@ class BacktestTrade:
     initial_stop: float = 0.0
     highest_price: float = 0.0
     lowest_price: float = 0.0
+    entry_index: int = 0
+    exit_index: int = 0
+    risk_amount: float = 0.0
+
+    @property
+    def r_multiple(self) -> float:
+        """PnL (after fees) in units of the risk planned at entry."""
+        return self.pnl / self.risk_amount if self.risk_amount > 0 else 0.0
 
 
 def _ts(ms: int) -> str:
@@ -65,59 +76,94 @@ def run_backtest(
     starting_balance: float = 10_000.0,
     fee_rate: float = 0.001,
     slippage_bps: float = 5.0,
+    stop_slippage_bps: float = 5.0,
+    min_notional: float = 10.0,
+    qty_step: Optional[float] = None,
+    start_ms: Optional[int] = None,
 ) -> Dict[str, Any]:
+    """Simulate the live bot's rules on ``df`` (closed candles, oldest first).
+
+    Costs model a market-order bot like the live one:
+
+    * every fill pays ``fee_rate`` (taker) on its notional;
+    * every fill is ``slippage_bps`` worse than the reference price;
+    * stop-loss exits pay an extra ``stop_slippage_bps``: the live bot notices
+      a stop only on its next price poll, after the level was crossed;
+    * orders below ``min_notional`` (exchange minimum) are skipped and the
+      quantity is rounded down to ``qty_step`` when given.
+
+    ``start_ms``: candles before this time only warm up the indicators; trading
+    and every statistic start at the first candle at or after it (used for
+    out-of-sample and per-year evaluation without losing the warm-up).
+    """
     settings = {**default_settings_values(), **(settings or {})}
     params = StrategyParams.from_settings(settings)
     risk = RiskManager(lambda: settings)
     slip = slippage_bps / 10_000.0
+    stop_slip = stop_slippage_bps / 10_000.0
 
     ind = compute_indicators(df.reset_index(drop=True), params)
+    ts = ind["timestamp"].to_numpy(dtype="int64")
+    opens, highs = ind["open"].to_numpy(float), ind["high"].to_numpy(float)
+    lows, closes = ind["low"].to_numpy(float), ind["close"].to_numpy(float)
+    atrs = ind["atr"].to_numpy(float)
+    long_sig, short_sig = ind["long_signal"].to_numpy(bool), ind["short_signal"].to_numpy(bool)
+    exit_long, exit_short = ind["exit_long"].to_numpy(bool), ind["exit_short"].to_numpy(bool)
+    days = (ts // 86_400_000).tolist()
+    first = int(np.searchsorted(ts, start_ms)) if start_ms is not None else 0
+
     cash = starting_balance  # realised equity
     position: Optional[BacktestTrade] = None
     trades: List[BacktestTrade] = []
     equity_curve: List[float] = []
     pending_entry: Optional[str] = None
     pending_exit = False
+    skipped = {"daily_loss_limit": 0, "risk_rejected": 0, "min_notional": 0}
     day, day_start = None, starting_balance
+    bars_in_market = 0
 
     def close(pos: BacktestTrade, raw_price: float, i: int, reason: str) -> None:
         nonlocal cash
-        price = raw_price * (1 - slip) if pos.side == "long" else raw_price * (1 + slip)
+        s = slip + (stop_slip if reason == "stop_loss" else 0.0)
+        price = raw_price * (1 - s) if pos.side == "long" else raw_price * (1 + s)
         exit_fee = price * pos.quantity * fee_rate
-        pos.exit_time, pos.exit_price, pos.exit_reason = _ts(ind.at[i, "timestamp"]), price, reason
+        pos.exit_time, pos.exit_price, pos.exit_reason, pos.exit_index = _ts(ts[i]), price, reason, i
         pos.fees += exit_fee
         pos.pnl = unrealized_pnl(pos.side, pos.entry_price, price, pos.quantity) - pos.fees
         cash += pos.pnl
         trades.append(pos)
 
-    for i in range(len(ind)):
-        row = ind.iloc[i]
-        o, h, l, c = float(row["open"]), float(row["high"]), float(row["low"]), float(row["close"])
-        today = _ts(row["timestamp"])[:10]
-        if today != day:  # UTC midnight reset
-            open_upnl = unrealized_pnl(position.side, position.entry_price, o, position.quantity) if position else 0.0
-            day, day_start = today, cash + open_upnl
+    for i in range(first, len(ts)):
+        o, h, l, c = opens[i], highs[i], lows[i], closes[i]
+        if days[i] != day:  # UTC midnight reset
+            open_upnl = (unrealized_pnl(position.side, position.entry_price, o, position.quantity) - position.fees
+                         if position else 0.0)
+            day, day_start = days[i], cash + open_upnl
 
         # 1) orders decided on the previous close fill at this open
         if position and pending_exit:
             close(position, o, i, "trend_flip")
             position = None
         if pending_entry and position is None:
-            prev_atr = float(ind.at[i - 1, "atr"])
             entry = o * (1 + slip) if pending_entry == "long" else o * (1 - slip)
-            equity_now = cash
-            plan = risk.plan_trade("BT", pending_entry, entry, prev_atr, equity_now, [],
-                                   day_start_equity=day_start, available_cash=cash)
-            if plan.allowed:
+            plan = risk.plan_trade("BT", pending_entry, entry, float(atrs[i - 1]), cash, [],
+                                   day_start_equity=day_start, available_cash=cash, qty_step=qty_step)
+            if not plan.allowed:
+                skipped["risk_rejected"] += 1
+            elif plan.notional < min_notional:
+                skipped["min_notional"] += 1
+            else:
                 fee = entry * plan.quantity * fee_rate
-                position = BacktestTrade(side=plan.side, entry_time=_ts(row["timestamp"]), entry_price=entry,
+                position = BacktestTrade(side=plan.side, entry_time=_ts(ts[i]), entry_price=entry,
                                          quantity=plan.quantity, stop_loss=plan.stop_loss,
                                          take_profit=plan.take_profit, fees=fee, initial_stop=plan.stop_loss,
-                                         highest_price=entry, lowest_price=entry)
+                                         highest_price=entry, lowest_price=entry, entry_index=i,
+                                         risk_amount=plan.risk_amount)
         pending_entry, pending_exit = None, False
 
-        # 2) intra-candle stop / target
+        # 2) intra-candle stop / target (stop first if both touched: conservative; gaps fill at the open)
         if position:
+            bars_in_market += 1
             p = position
             if p.side == "long":
                 if l <= p.stop_loss:
@@ -135,27 +181,28 @@ def run_backtest(
                     position = None
 
         # 3) trailing stop on the closed candle
-        if position and pd.notna(row["atr"]):
+        if position and not np.isnan(atrs[i]):
             position.highest_price = max(position.highest_price, h)
             position.lowest_price = min(position.lowest_price, l)
-            position.stop_loss = risk.trailing_stop_for(asdict(position), float(row["atr"]))
+            position.stop_loss = risk.trailing_stop_for(asdict(position), float(atrs[i]))
 
         # 4) signals on the closed candle -> act at next open
         if position:
-            pending_exit = bool(row["exit_long"]) if position.side == "long" else bool(row["exit_short"])
-        elif settings.get("trading_enabled", True):
-            if not is_daily_loss_limit_hit(day_start, cash, float(settings["daily_loss_limit_pct"])):
-                if bool(row["long_signal"]):
-                    pending_entry = "long"
-                elif bool(row["short_signal"]):
-                    pending_entry = "short"
+            pending_exit = bool(exit_long[i]) if position.side == "long" else bool(exit_short[i])
+        elif settings.get("trading_enabled", True) and (long_sig[i] or short_sig[i]):
+            if is_daily_loss_limit_hit(day_start, cash, float(settings["daily_loss_limit_pct"])):
+                skipped["daily_loss_limit"] += 1
+            else:
+                pending_entry = "long" if long_sig[i] else "short"
 
         upnl = unrealized_pnl(position.side, position.entry_price, c, position.quantity) if position else 0.0
         equity_curve.append(cash + upnl - (position.fees if position else 0.0))
 
     if position:  # mark-to-market close at the end
-        close(position, float(ind.iloc[-1]["close"]), len(ind) - 1, "end_of_data")
+        close(position, float(closes[-1]), len(ts) - 1, "end_of_data")
         equity_curve[-1] = cash
+    if not equity_curve:
+        equity_curve = [starting_balance]
 
     closed = [{"pnl": t.pnl, "fees": t.fees, "closed_at": t.exit_time, "id": n} for n, t in enumerate(trades)]
     stats = compute_performance(closed, starting_balance)
@@ -164,8 +211,36 @@ def run_backtest(
     curve = np.array(equity_curve) if equity_curve else np.array([starting_balance])
     peak = np.maximum.accumulate(curve)
     stats["max_drawdown_mtm_pct"] = float(((peak - curve) / peak).max() * 100.0)
-    stats["candles"] = len(ind)
-    return {"trades": trades, "stats": stats, "equity_curve": equity_curve}
+    stats["candles"] = len(ts) - first
+    stats.update(_extra_stats(trades, ts[first:], curve, closes[first:], bars_in_market, starting_balance))
+    stats["skipped_signals"] = skipped
+    return {"trades": trades, "stats": stats, "equity_curve": equity_curve,
+            "timestamps": ts[first:].tolist()}
+
+
+def _extra_stats(trades: List[BacktestTrade], ts: np.ndarray, curve: np.ndarray, closes: np.ndarray,
+                 bars_in_market: int, starting_balance: float) -> Dict[str, Any]:
+    n = len(ts)
+    out: Dict[str, Any] = {
+        "exit_reasons": {},
+        "avg_bars_held": float(np.mean([t.exit_index - t.entry_index + 1 for t in trades])) if trades else 0.0,
+        "exposure_pct": bars_in_market / n * 100.0 if n else 0.0,
+        "avg_r": float(np.mean([t.r_multiple for t in trades])) if trades else 0.0,
+        "buy_hold_return_pct": (closes[-1] / closes[0] - 1) * 100.0 if n else 0.0,
+    }
+    for t in trades:
+        out["exit_reasons"][t.exit_reason] = out["exit_reasons"].get(t.exit_reason, 0) + 1
+    # daily mark-to-market returns -> annualised Sharpe (crypto trades 365 days a year)
+    if n > 1:
+        daily = pd.Series(curve, index=pd.to_datetime(ts, unit="ms", utc=True)).resample("1D").last().dropna()
+        rets = daily.pct_change().dropna()
+        out["sharpe"] = float(rets.mean() / rets.std() * np.sqrt(365)) if len(rets) > 1 and rets.std() > 0 else 0.0
+        years = (ts[-1] - ts[0]) / (365.25 * 86_400_000)
+        final = curve[-1]
+        out["cagr_pct"] = ((final / starting_balance) ** (1 / years) - 1) * 100.0 if years > 0 and final > 0 else 0.0
+    else:
+        out["sharpe"], out["cagr_pct"] = 0.0, 0.0
+    return out
 
 
 # ----------------------------------------------------------------- data
@@ -187,10 +262,12 @@ def generate_synthetic_ohlcv(n: int = 2000, seed: int = 7, start_price: float = 
 
 
 def load_csv(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
+    df = pd.read_csv(path)  # .csv or .csv.gz
     df.columns = [c.strip().lower() for c in df.columns]
     if not np.issubdtype(df["timestamp"].dtype, np.number):
         df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).astype("int64") // 1_000_000
+    elif df["timestamp"].max() > 1e14:  # microseconds (e.g. Binance dumps from 2025) -> ms
+        df["timestamp"] = df["timestamp"] // 1000
     return df[["timestamp", "open", "high", "low", "close", "volume"]].astype(float).astype({"timestamp": "int64"})
 
 
@@ -239,7 +316,11 @@ def main(argv=None) -> int:
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help="Override a setting")
     ap.add_argument("--balance", type=float, default=10_000.0)
     ap.add_argument("--fee", type=float, default=0.001)
-    ap.add_argument("--slippage-bps", type=float, default=5.0)
+    ap.add_argument("--slippage-bps", type=float, default=5.0, help="Slippage on every fill (bps)")
+    ap.add_argument("--stop-slippage-bps", type=float, default=5.0,
+                    help="Extra slippage on stop-loss exits (bps), on top of --slippage-bps")
+    ap.add_argument("--min-notional", type=float, default=10.0, help="Skip orders smaller than this (quote)")
+    ap.add_argument("--json", help="Write the summary statistics to this JSON file")
     ap.add_argument("--trades-csv", help="Write the trade list to this CSV")
     args = ap.parse_args(argv)
 
@@ -263,12 +344,20 @@ def main(argv=None) -> int:
         print("No data.")
         return 1
 
-    result = run_backtest(df, settings, args.balance, args.fee, args.slippage_bps)
+    result = run_backtest(df, settings, args.balance, args.fee, args.slippage_bps,
+                          stop_slippage_bps=args.stop_slippage_bps, min_notional=args.min_notional)
     s = result["stats"]
     print(f"Candles: {s['candles']}  {_ts(df['timestamp'].iloc[0])} -> {_ts(df['timestamp'].iloc[-1])}")
     print(format_performance(s))
     print(f"final_equity={s['final_equity']:.2f} return={s['return_pct']:.2f}% "
           f"max_dd_mark_to_market={s['max_drawdown_mtm_pct']:.2f}%")
+    print(f"sharpe={s['sharpe']:.2f} cagr={s['cagr_pct']:.2f}% exposure={s['exposure_pct']:.1f}% "
+          f"avg_r={s['avg_r']:.2f} buy_and_hold={s['buy_hold_return_pct']:.2f}% exits={s['exit_reasons']}")
+    if args.json:
+        import json
+
+        with open(args.json, "w") as fh:
+            json.dump(s, fh, indent=2, default=float)
     if args.trades_csv and result["trades"]:
         with open(args.trades_csv, "w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=list(asdict(result["trades"][0]).keys()))
