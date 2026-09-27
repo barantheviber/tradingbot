@@ -79,3 +79,47 @@ def test_backoff_grows_and_is_capped():
     assert [backoff_delay(i, 1.0, 10.0, rng=hi) for i in range(6)] == [1, 2, 4, 8, 10, 10]
     lo = lambda a, b: a  # noqa: E731
     assert backoff_delay(3, 1.0, 10.0, rng=lo) == 0.5
+
+
+class ClockExchange:
+    has = {"fetchTime": True}
+
+    def __init__(self, local_ms, server_ms):
+        self.local_ms, self.server_ms = local_ms, server_ms
+
+    def load_markets(self, reload=False):
+        return {}
+
+    def milliseconds(self):
+        return self.local_ms
+
+    def fetch_time(self):
+        return self.server_ms
+
+
+def test_candle_close_uses_exchange_time_when_local_clock_runs_ahead():
+    import pandas as pd
+
+    hour = 3_600_000
+    # local clock 2 minutes ahead: it believes the 10:00 candle closed at 11:00 already
+    fake = ClockExchange(local_ms=11 * hour + 60_000, server_ms=11 * hour - 60_000)
+    client = ExchangeClient("binance", exchange=fake)
+    client.load_markets()
+    assert client.milliseconds() == 11 * hour - 60_000
+
+    rows = [[h * hour, 1, 1, 1, 1, 1] for h in (8, 9, 10)]
+    fake.fetch_ohlcv = lambda *a: rows
+    df = client.fetch_closed_ohlcv("BTC/USDT", "1h", 3)
+    assert list(df["timestamp"]) == [8 * hour, 9 * hour]  # 10:00 candle still forming
+
+
+def test_clock_sync_failure_falls_back_to_local_clock():
+    fake = ClockExchange(local_ms=1_000, server_ms=None)
+
+    def boom():
+        raise ccxt.ExchangeError("no time endpoint")
+
+    fake.fetch_time = boom
+    client = ExchangeClient("binance", exchange=fake)
+    client.load_markets()
+    assert client.milliseconds() == 1_000

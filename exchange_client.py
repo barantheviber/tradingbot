@@ -48,6 +48,8 @@ NON_RETRYABLE_ERRORS: Tuple[Type[Exception], ...] = (
 )
 ORDER_SAFE_RETRY_ERRORS: Tuple[Type[Exception], ...] = (ccxt.RateLimitExceeded, ccxt.DDoSProtection)
 
+CLOCK_RESYNC_SEC = 3600
+
 OHLCV_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
 
 
@@ -78,6 +80,8 @@ class ExchangeClient:
         self.max_delay = max_delay
         self._sleep = sleep_fn
         self._markets_loaded = False
+        self._clock_offset_ms = 0
+        self._clock_synced_at: Optional[float] = None
 
         if exchange is not None:  # injected (tests)
             self.exchange = exchange
@@ -152,17 +156,48 @@ class ExchangeClient:
     def load_markets(self, reload: bool = False) -> Dict[str, Any]:
         markets = self.call("load_markets", reload)
         self._markets_loaded = True
+        self.sync_clock()
         return markets
+
+    def sync_clock(self) -> None:
+        """Measure how far the local clock is from the exchange's (best effort).
+
+        A local clock running ahead would make ``drop_unclosed_candles`` treat
+        the still-forming candle as closed (look-ahead). Home PCs and phones
+        drift, so candle closing uses exchange time when it is available.
+        """
+        self._clock_synced_at = time.monotonic()
+        has = getattr(self.exchange, "has", None) or {}
+        if not has.get("fetchTime"):
+            return
+        try:
+            before = self._local_ms()
+            server = self.call("fetch_time")
+            after = self._local_ms()
+        except Exception as exc:
+            log.warning("Exchange time unavailable; using local clock", extra={"error": type(exc).__name__})
+            return
+        if server:
+            self._clock_offset_ms = int(server) - (before + after) // 2
+            if abs(self._clock_offset_ms) > 5_000:
+                log.warning("Local clock differs from exchange time",
+                            extra={"offset_sec": round(self._clock_offset_ms / 1000, 1)})
 
     def _ensure_markets(self) -> None:
         if not self._markets_loaded:
             self.load_markets()
 
-    def milliseconds(self) -> int:
+    def _local_ms(self) -> int:
         try:
             return int(self.exchange.milliseconds())
-        except Exception:  # pragma: no cover
+        except Exception:
             return int(time.time() * 1000)
+
+    def milliseconds(self) -> int:
+        """Current time in exchange terms (local clock + measured offset)."""
+        if self._clock_synced_at is not None and time.monotonic() - self._clock_synced_at > CLOCK_RESYNC_SEC:
+            self.sync_clock()
+        return self._local_ms() + self._clock_offset_ms
 
     def timeframe_ms(self, timeframe: str) -> int:
         return int(ccxt.Exchange.parse_timeframe(timeframe) * 1000)
