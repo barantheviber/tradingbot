@@ -123,3 +123,45 @@ def test_clock_sync_failure_falls_back_to_local_clock():
     client = ExchangeClient("binance", exchange=fake)
     client.load_markets()
     assert client.milliseconds() == 1_000
+
+
+class StopExchange:
+    def __init__(self, has):
+        self.has = has
+        self.calls = []
+
+    def load_markets(self, reload=False):
+        return {}
+
+    def amount_to_precision(self, symbol, amount):
+        return str(amount)
+
+    def price_to_precision(self, symbol, price):
+        return str(round(price, 2))
+
+    def create_stop_loss_order(self, *args):
+        self.calls.append(("stop_loss", args))
+        return {"id": "s1"}
+
+    def create_stop_market_order(self, *args):
+        self.calls.append(("stop_market", args))
+        return {"id": "s2"}
+
+
+def test_create_stop_order_prefers_stop_loss_type_and_rounds_price():
+    fake = StopExchange({"createStopLossOrder": True, "createStopMarketOrder": True})
+    client = ExchangeClient("binance", exchange=fake)
+    assert client.supports_stop_orders()
+    client.create_stop_order("BTC/USDT", "sell", 0.5, 95.123, {"reduceOnly": True})
+    kind, args = fake.calls[0]
+    assert kind == "stop_loss" and args[:6] == ("BTC/USDT", "market", "sell", 0.5, None, 95.12)
+    assert args[6]["reduceOnly"] is True and args[6]["clientOrderId"].startswith("tbs-")
+
+
+def test_create_stop_order_falls_back_and_reports_unsupported():
+    client = ExchangeClient("x", exchange=StopExchange({"createStopMarketOrder": True}))
+    assert client.create_stop_order("BTC/USDT", "sell", 1, 90)["id"] == "s2"
+    none = ExchangeClient("x", exchange=StopExchange({}))
+    assert not none.supports_stop_orders()
+    with pytest.raises(ccxt.NotSupported):
+        none.create_stop_order("BTC/USDT", "sell", 1, 90)

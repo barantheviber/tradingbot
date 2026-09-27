@@ -133,6 +133,9 @@ DEFAULT_SETTINGS: Dict[str, tuple] = {
     "daily_loss_limit_pct": (5.0, "Günlük zarar bu yüzdeyi aşarsa UTC gece yarısına kadar yeni pozisyon açma."),
     "max_open_positions": (3, "Maksimum eşzamanlı açık pozisyon."),
     "max_symbol_exposure_pct": (25.0, "Sembol başına maksimum pozisyon büyüklüğü (özsermaye yüzdesi)."),
+    # --- live execution
+    "exchange_stop_enabled": (True, "Canlı modda stop-loss'u borsaya da emir olarak koy (bot kapalıyken de korur). "
+                                    "Paper modu etkilemez."),
 }
 
 

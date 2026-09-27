@@ -137,6 +137,9 @@ class FakeSpotExchange:
     def market_limits(self, symbol):
         return {}
 
+    def supports_stop_orders(self):
+        return False
+
 
 def test_live_spot_buy_tracks_quantity_net_of_base_fee(state):
     ex = FakeSpotExchange()
