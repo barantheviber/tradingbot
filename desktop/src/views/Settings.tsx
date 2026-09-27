@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { settingLabel } from "../../shared/settingLabels";
 import type { Setting, SettingValue } from "../../shared/types";
 import { api } from "../api";
 import { time } from "../format";
@@ -8,8 +9,13 @@ export default function Settings() {
   const settings = usePolling(() => api.settings(), 0);
   const [filter, setFilter] = useState("");
 
+  const q = filter.toLocaleLowerCase("tr");
   const rows = (settings.data ?? []).filter(
-    (s) => !filter || s.key.includes(filter.toLowerCase()) || s.description.toLowerCase().includes(filter.toLowerCase()),
+    (s) =>
+      !q ||
+      s.key.includes(q) ||
+      settingLabel(s.key).toLocaleLowerCase("tr").includes(q) ||
+      s.description.toLocaleLowerCase("tr").includes(q),
   );
 
   return (
@@ -30,7 +36,7 @@ export default function Settings() {
         <table>
           <thead>
             <tr>
-              <th>Anahtar</th>
+              <th>Ayar</th>
               <th>Değer</th>
               <th>Açıklama</th>
               <th>Güncellendi</th>
@@ -94,7 +100,10 @@ function SettingRow({ setting, onSaved }: { setting: Setting; onSaved: (key: str
 
   return (
     <tr>
-      <td className="mono">{setting.key}</td>
+      <td>
+        {settingLabel(setting.key)}
+        <div className="mono small">{setting.key}</div>
+      </td>
       <td className="setting-value">
         {isBool ? (
           <label className="switch">

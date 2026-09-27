@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
 const { buildEnvFile, childEnv, exitReason, restartDelayMs } = require("../dist-electron/electron/localBotEnv.js");
-const { DEFAULT_SETUP, parseSymbols, validateSetup } = require("../dist-electron/shared/localBot.js");
+const { DEFAULT_SETUP, durationText, nextCandleClose, parseSymbols, validateSetup } = require("../dist-electron/shared/localBot.js");
 
 test("the .env is paper only and never carries keys, the token or a live switch", () => {
   const env = buildEnvFile({ ...DEFAULT_SETUP, symbols: ["BTC/USDT", "SOL/USDT"] });
@@ -46,4 +46,18 @@ test("exit reasons and restart backoff", () => {
   assert.equal(exitReason("log line\nSTARTUP_ERROR: SYMBOLS boş olamaz.\n"), "SYMBOLS boş olamaz.");
   assert.equal(exitReason("nothing useful"), null);
   assert.deepEqual([1, 2, 3, 4, 5, 9].map(restartDelayMs), [5000, 10000, 20000, 40000, 60000, 60000]);
+});
+
+test("the next candle close follows the UTC grid the exchanges use", () => {
+  const t = Date.UTC(2026, 8, 27, 21, 50, 10);
+  assert.equal(nextCandleClose("4h", t), Date.UTC(2026, 8, 28, 0, 0));
+  assert.equal(nextCandleClose("1h", t), Date.UTC(2026, 8, 27, 22, 0));
+  assert.equal(nextCandleClose("15m", t), Date.UTC(2026, 8, 27, 22, 0));
+  assert.equal(nextCandleClose("1d", t), Date.UTC(2026, 8, 28));
+  assert.equal(nextCandleClose("4h", Date.UTC(2026, 8, 27, 20)), Date.UTC(2026, 8, 28));
+  assert.equal(nextCandleClose("1w", t), null);
+  assert.equal(nextCandleClose("7h", t), null);
+  assert.equal(durationText(135 * 60_000), "2 sa 15 dk");
+  assert.equal(durationText(10_000), "1 dk");
+  assert.equal(durationText(4 * 3_600_000), "4 sa");
 });

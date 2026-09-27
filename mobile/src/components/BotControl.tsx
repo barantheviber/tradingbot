@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Text, View } from 'react-native';
 
 import { api, type Connection } from '../api/client';
 import type { Position } from '../api/types';
 import { useConnection } from '../lib/connection';
 import { askBatteryUnrestricted, batteryUnrestricted, useLocalBot } from '../lib/localBot';
+import { nextDecisionText } from '../lib/localSetup';
 import { colors } from '../lib/theme';
 import { Banner, Button, Card, styles } from './ui';
 
@@ -39,6 +40,12 @@ export function BotControl({ positions }: { positions: Position[] }) {
   const [battery, setBattery] = useState(batteryUnrestricted);
   const phase = bot.state.phase;
   const active = phase === 'running' || phase === 'starting';
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const next = phase === 'running' && localSetup ? nextDecisionText(localSetup.timeframe, now) : null;
 
   const start = async () => {
     if (!localSetup || !connection) return;
@@ -94,6 +101,7 @@ export function BotControl({ positions }: { positions: Position[] }) {
       <Text style={{ color: phase === 'running' ? colors.up : phase === 'error' ? colors.down : colors.text, fontWeight: '600' }}>
         {busy ?? LABEL[phase]}
       </Text>
+      {!busy && next ? <Text style={[styles.muted, { marginTop: 4 }]}>{next}. Arada işlem olmaması normaldir.</Text> : null}
       {bot.state.message ? <Text style={[styles.muted, { marginTop: 4 }]}>{bot.state.message}</Text> : null}
       {error ? <Text style={{ color: colors.down, marginTop: 4 }}>{error}</Text> : null}
       <View style={{ marginTop: 10, gap: 8 }}>

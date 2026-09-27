@@ -93,3 +93,10 @@ def test_short_token_is_rejected(runtime_env, monkeypatch):
     monkeypatch.setenv("API_TOKEN", "short")
     with pytest.raises(RuntimeStartError):
         LocalRuntime(str(tmp_path / "missing.env")).start()
+
+
+def test_unparsable_value_is_a_start_error(runtime_env, monkeypatch):
+    tmp_path, _ = runtime_env
+    monkeypatch.setenv("POLL_INTERVAL_SEC", "often")
+    with pytest.raises(RuntimeStartError, match="POLL_INTERVAL_SEC"):
+        LocalRuntime(str(tmp_path / "missing.env")).start()

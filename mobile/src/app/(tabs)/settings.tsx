@@ -6,6 +6,7 @@ import { api } from '../../api/client';
 import type { Setting, SettingValue } from '../../api/types';
 import { Banner, Button, styles } from '../../components/ui';
 import { useRequiredConnection } from '../../lib/connection';
+import { settingLabel } from '../../lib/settingLabels';
 import { colors } from '../../lib/theme';
 
 function SettingRow({ setting, onSave }: { setting: Setting; onSave: (key: string, value: SettingValue) => Promise<string | null> }) {
@@ -23,7 +24,7 @@ function SettingRow({ setting, onSave }: { setting: Setting; onSave: (key: strin
   return (
     <View style={[styles.card, { gap: 6 }]}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={[styles.text, { fontWeight: '600', flexShrink: 1 }]}>{setting.key}</Text>
+        <Text style={[styles.text, { fontWeight: '600', flexShrink: 1 }]}>{settingLabel(setting.key)}</Text>
         {setting.type === 'bool' ? (
           <Switch value={Boolean(setting.value)} disabled={busy} onValueChange={(v) => save(v)} />
         ) : null}

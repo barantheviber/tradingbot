@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { LocalBotState, Position, Status } from "../../shared/types";
+import { useEffect, useState } from "react";
+import { nextDecisionText, type LocalBotState, type Position, type Status } from "../../shared/types";
 import { api } from "../api";
 import { followCommand } from "../commands";
 
@@ -25,6 +25,12 @@ export default function BotControl({ state, positions, status, onChanged }: Prop
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const active = state.phase === "running" || state.phase === "starting" || state.phase === "restarting";
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const next = state.phase === "running" && status?.bot_running ? nextDecisionText(status.timeframe, now) : null;
 
   async function start() {
     setError(null);
@@ -77,6 +83,11 @@ export default function BotControl({ state, positions, status, onChanged }: Prop
       <span className="botcontrol-label">{busy ?? PHASE_LABEL[state.phase]}</span>
       {!busy && state.phase === "running" && status && !status.bot_running && (
         <span className="note">Borsaya bağlanmaya çalışıyor; internet bağlantınızı kontrol edin.</span>
+      )}
+      {!busy && next && (
+        <span className="note" title="Bot yalnızca mum kapandığında karar verir; arada işlem olmaması normaldir.">
+          {next}
+        </span>
       )}
       {state.message && <span className="note">{state.message}</span>}
       {error && <span className="neg">{error}</span>}
