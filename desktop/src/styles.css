@@ -98,3 +98,5 @@ button.danger:hover:not(:disabled) { background: #4a1f1f; }
 .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; max-width: 520px; }
 .modal h3 { margin: 0 0 8px; font-size: 15px; }
 .modal .row { flex-wrap: wrap; margin-top: 12px; }
+.welcome { grid-column: 1 / -1; border-color: var(--accent); }
+.welcome ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; color: var(--text); }
