@@ -243,8 +243,11 @@ testler ve derleme).
 
 1. Uzun süre paper modda çalıştırın ve sonuçları inceleyin.
 2. Mümkünse önce testnet: `.env` içinde `USE_TESTNET=true` ve testnet API anahtarları.
-3. Borsada **para çekme yetkisi olmayan**, mümkünse IP kısıtlı bir API anahtarı oluşturun.
-4. `.env` içinde:
+3. Testnet'te küçük bir pozisyon açılınca borsanın açık emirler sayfasında o pozisyonun **stop emrini**
+   görün (`exchange_stop_enabled` ayarı, varsayılan açık). Bu emir bot kapalıyken de pozisyonu korur;
+   kâr al (take-profit) ve trailing stop ise yalnızca bot çalışırken işler.
+4. Borsada **para çekme yetkisi olmayan**, mümkünse IP kısıtlı bir API anahtarı oluşturun.
+5. `.env` içinde:
    ```
    PAPER_TRADING=false
    LIVE_TRADING_CONFIRM=I_UNDERSTAND_THE_RISKS
@@ -252,7 +255,7 @@ testler ve derleme).
    API_SECRET=...
    ```
    İkisi birden ayarlanmadan bot canlı modda başlamaz.
-5. Küçük `risk_per_trade_pct` ve `max_symbol_exposure_pct` değerleriyle başlayın.
+6. Küçük `risk_per_trade_pct` ve `max_symbol_exposure_pct` değerleriyle başlayın.
 
 Paper ve canlı pozisyonlar veritabanında `mode` sütunuyla ayrılır; yine de her mod için ayrı bir
 `DB_PATH` kullanmanız önerilir.
