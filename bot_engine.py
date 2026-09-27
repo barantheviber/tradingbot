@@ -149,13 +149,19 @@ class BotEngine:
         settings = self.state.get_all_settings()
         params = StrategyParams.from_settings(settings)
 
-        for symbol in self.config.symbols:
+        # Positions whose symbol was removed from SYMBOLS (e.g. .env edited while a
+        # position was open) still get their stop-loss / take-profit enforced.
+        watched = list(self.config.symbols)
+        watched += sorted({p["symbol"] for p in self.executor.open_positions()} - set(watched))
+        for symbol in watched:
             try:
                 self._last_prices[symbol] = self.exchange.fetch_last_price(symbol)
             except ccxt.BaseError as exc:
                 log.warning("Price fetch failed", extra={"symbol": symbol, "error": type(exc).__name__})
                 continue
             self._enforce_stops(symbol, self._last_prices[symbol])
+
+        self._snapshot_day_start_equity()
 
         for symbol in self.config.symbols:
             if self.stopping:
@@ -173,6 +179,24 @@ class BotEngine:
         equity = self.executor.get_equity(self._last_prices)
         self.state.set_state("heartbeat", {"ts": time.time(), "equity": equity, "prices": self._last_prices,
                                            "mode": self.executor.mode})
+
+    def _snapshot_day_start_equity(self) -> None:
+        """Record today's start equity on the first tick of the UTC day.
+
+        Doing this every tick (not only when an entry signal appears) makes the
+        daily loss limit measure from the start of the day, so losses taken
+        before the day's first signal are counted too.
+        """
+        mode = self.executor.mode
+        if self.state.get_day_start_equity(mode) is not None:
+            return
+        try:
+            equity = self.executor.get_equity(self._last_prices)
+        except ccxt.BaseError as exc:
+            log.warning("Equity unavailable for day start snapshot", extra={"error": type(exc).__name__})
+            return
+        self.state.get_or_create_day_start_equity(mode, equity)
+        self.state.prune_events()
 
     def _enforce_stops(self, symbol: str, price: float) -> None:
         for pos in self.executor.open_positions():
@@ -280,6 +304,16 @@ class BotEngine:
             skip("insufficient funds", "WARNING")
         except ccxt.InvalidOrder as exc:
             skip(f"invalid order: {exc}", "WARNING")
+        except (ccxt.AuthenticationError, ccxt.PermissionDenied):
+            raise
+        except ccxt.NetworkError as exc:
+            # The order may have reached the exchange even though no answer came back.
+            # Do not place it again for this candle: a retry could open a duplicate.
+            log.error("Entry order status unknown; not retrying this signal",
+                      extra={"symbol": symbol, "error": type(exc).__name__})
+            skip(f"order status unknown after {type(exc).__name__}; check the exchange", "ERROR")
+        except ccxt.BaseError as exc:
+            skip(f"order rejected: {type(exc).__name__}: {exc}", "WARNING")
 
     def _close(self, pos: Dict[str, Any], price: float, reason: str) -> None:
         try:
@@ -315,10 +349,18 @@ class BotEngine:
             self.executor.close_position(pos, price, "manual")
             return f"closed at {price}"
         if command == "close_all":
-            closed = 0
+            closed, failed = 0, []
             for pos in self.executor.open_positions():
-                self.executor.close_position(pos, self.exchange.fetch_last_price(pos["symbol"]), "manual")
-                closed += 1
+                try:  # one failing symbol must not leave the others open
+                    price = self.exchange.fetch_last_price(pos["symbol"])
+                    self._last_prices[pos["symbol"]] = price
+                    self.executor.close_position(pos, price, "manual")
+                    closed += 1
+                except ccxt.BaseError as exc:
+                    log.error("Close failed", extra={"position_id": pos["id"], "error": type(exc).__name__})
+                    failed.append(f"#{pos['id']} {pos['symbol']}: {type(exc).__name__}")
+            if failed:
+                raise RuntimeError(f"closed {closed}, failed {len(failed)}: {'; '.join(failed)}")
             return f"closed {closed} position(s)"
         raise ValueError(f"unknown command {command!r}")
 

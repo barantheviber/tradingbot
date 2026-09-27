@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Mapping, Tuple
 
-from execution.base import BaseExecutionClient, Fill
+from execution.base import BaseExecutionClient, Fill, check_market_limits
 from risk_manager import unrealized_pnl
 
 
@@ -33,17 +33,15 @@ class LiveExecutionClient(BaseExecutionClient):
         if quantity <= 0:
             return False, "quantity below exchange precision"
         limits = self.exchange.market_limits(symbol)
-        if limits.get("min_amount") and quantity < limits["min_amount"]:
-            return False, f"quantity {quantity} < min amount {limits['min_amount']}"
-        if limits.get("min_cost") and quantity * price < limits["min_cost"]:
-            return False, f"notional {quantity * price:.4f} < min cost {limits['min_cost']}"
-        return True, "ok"
+        return check_market_limits(limits, quantity, price)
 
     def _submit_market_order(self, symbol: str, side: str, quantity: float, reference_price: float,
                              reduce_only: bool = False) -> Fill:
         params: Dict[str, Any] = {}
         if reduce_only and self.market_type != "spot":
             params["reduceOnly"] = True
+        if reduce_only and self.market_type == "spot" and side == "sell":
+            quantity = self._sellable_quantity(symbol, quantity)
         order = self.exchange.create_market_order(symbol, side, quantity, params)
         if not order.get("average") and order.get("id"):
             try:
@@ -52,8 +50,36 @@ class LiveExecutionClient(BaseExecutionClient):
                 self.log.warning("Could not fetch order details", extra={"symbol": symbol, "error": str(exc)})
         price = float(order.get("average") or order.get("price") or reference_price)
         filled = float(order.get("filled") or quantity)
-        return Fill(price=price, quantity=filled, fee=self._fee_in_quote(order, symbol, price, filled),
+        fee = self._fee_in_quote(order, symbol, price, filled)
+        base_fee = self._fee_in_base(order, symbol)
+        if side == "buy" and self.market_type == "spot" and 0 < base_fee < filled:
+            # The exchange took the fee out of the bought coins, so we hold less than
+            # `filled`. Track what we actually hold, or the closing sell would ask for
+            # more than the balance and fail with InsufficientFunds on every loop.
+            filled -= base_fee
+        return Fill(price=price, quantity=filled, fee=fee,
                     order_id=str(order.get("id")) if order.get("id") else None)
+
+    def _sellable_quantity(self, symbol: str, quantity: float) -> float:
+        """Cap a spot sell at the free base balance (positions opened before the
+        base-fee fix recorded the gross amount). Falls back to ``quantity``."""
+        base = symbol.split("/")[0]
+        try:
+            free = float((self.exchange.fetch_balance().get("free") or {}).get(base) or 0.0)
+        except Exception as exc:
+            self.log.warning("Balance unavailable before sell", extra={"symbol": symbol, "error": str(exc)})
+            return quantity
+        if 0 < free < quantity:
+            self.log.warning("Selling the free balance instead of the recorded quantity",
+                             extra={"symbol": symbol, "recorded": quantity, "free": free})
+            return free
+        return quantity
+
+    @staticmethod
+    def _fee_in_base(order: Mapping[str, Any], symbol: str) -> float:
+        base = symbol.split("/")[0]
+        fees = order.get("fees") or ([order["fee"]] if order.get("fee") else [])
+        return sum(float(f.get("cost") or 0.0) for f in fees if f and f.get("currency") == base)
 
     def _fee_in_quote(self, order: Mapping[str, Any], symbol: str, price: float, filled: float) -> float:
         fee = order.get("fee") or {}
