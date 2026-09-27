@@ -2,8 +2,8 @@ name: Real-data backtest
 
 # Backtests the strategy on real market history (separate from CI, which only uses synthetic data).
 # Data: Binance's public archive (data.binance.vision), reachable from GitHub's US runners.
-# Results: the run's summary page, the "backtest-results" artifact, and the `backtest-data`
-# branch (history CSVs + results), which is overwritten on every run.
+# Results: the run's summary page, the "backtest-results" artifact, and (for runs on main) the
+# `backtest-data` branch (history CSVs + results), which is overwritten on every such run.
 
 on:
   workflow_dispatch:
@@ -70,7 +70,8 @@ jobs:
         env:
           VARIANTS: ${{ inputs.variants }}
         run: |
-          args=()
+          # the defaults before the 2026-09 retune, kept for comparison (docs/backtest-raporu.md)
+          args=(--variant "previous_defaults:atr_sl_multiplier=1.5,risk_reward_ratio=2,trailing_atr_multiplier=2,rsi_long_max=70")
           while IFS= read -r line; do
             [ -n "$line" ] && args+=(--variant "$line")
           done <<< "$VARIANTS"
@@ -83,7 +84,8 @@ jobs:
           path: backtest-results/
 
       - name: Publish data and results to the backtest-data branch
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        # only for main's own runs (weekly / manual), so a PR's results never replace main's
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

@@ -133,9 +133,33 @@ def _migration_1_initial(conn: sqlite3.Connection) -> None:
     )
 
 
+# key -> (previous default, new default). Frozen: later default changes need a new migration.
+RETUNED_DEFAULTS_2: Dict[str, Tuple[Any, Any]] = {
+    "rsi_long_max": (70.0, 100.0),
+    "atr_sl_multiplier": (1.5, 3.0),
+    "risk_reward_ratio": (2.0, 10.0),
+    "trailing_atr_multiplier": (2.0, 5.0),
+}
+
+
+def _migration_2_retuned_defaults(conn: sqlite3.Connection) -> None:
+    """Strategy/risk defaults were retuned on real market history (docs/backtest-raporu.md).
+
+    Seeding never overwrites existing rows, so move each setting that still
+    holds its *previous* default to the new default. Values the user edited
+    are left alone. A fresh database has no rows yet and is seeded later.
+    """
+    now = utc_now_iso()
+    for key, (old, new) in RETUNED_DEFAULTS_2.items():
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        if row is not None and json.loads(row[0]) == old:
+            conn.execute("UPDATE settings SET value = ?, updated_at = ? WHERE key = ?", (json.dumps(new), now, key))
+
+
 # Append new migrations here: (version, function(conn)). Never edit old ones.
 MIGRATIONS: List[Tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (1, _migration_1_initial),
+    (2, _migration_2_retuned_defaults),
 ]
 
 

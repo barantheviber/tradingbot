@@ -67,3 +67,22 @@ def test_backtest_smoke_and_accounting():
         assert t.exit_reason in {"stop_loss", "take_profit", "trend_flip", "end_of_data"}
         # risk per trade never exceeds 1% of starting-ish equity by more than fees + slippage noise
         assert t.quantity * abs(t.entry_price - t.initial_stop) <= 0.011 * 2 * 10_000
+
+
+def test_regime_filters_only_remove_signals():
+    from strategy import StrategyParams, compute_indicators
+
+    df = generate_synthetic_ohlcv(3000, seed=5)
+    base = compute_indicators(df, StrategyParams(min_confirmations=2))
+    for extra in ({"ema_slope_bars": 24}, {"adx_min": 25.0}, {"min_atr_pct": 3.0}):
+        filt = compute_indicators(df, StrategyParams(min_confirmations=2, **extra))
+        assert (filt["long_signal"] <= base["long_signal"]).all(), extra
+        assert filt["long_signal"].sum() < base["long_signal"].sum(), extra
+    assert "adx" in compute_indicators(df, StrategyParams(adx_min=20.0)).columns
+
+
+def test_regime_filter_settings_are_clamped():
+    from strategy import StrategyParams
+
+    p = StrategyParams.from_settings({"ema_slope_bars": -5, "adx_period": 0, "adx_min": -1, "min_atr_pct": -2})
+    assert (p.ema_slope_bars, p.adx_period, p.adx_min, p.min_atr_pct) == (0, 1, 0.0, 0.0)

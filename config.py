@@ -106,7 +106,7 @@ DEFAULT_SETTINGS: Dict[str, tuple] = {
     # --- momentum
     "rsi_period": (14, "RSI periyodu."),
     "rsi_long_min": (45.0, "Long için RSI alt sınırı."),
-    "rsi_long_max": (70.0, "Long için RSI üst sınırı (aşırı alım filtresi)."),
+    "rsi_long_max": (100.0, "Long için RSI üst sınırı (100 = sınır yok; gerçek veride güçlü trendleri kaçırmamak için)."),
     "rsi_short_min": (30.0, "Short için RSI alt sınırı (aşırı satım filtresi)."),
     "rsi_short_max": (55.0, "Short için RSI üst sınırı."),
     # --- MACD + volume
@@ -123,12 +123,18 @@ DEFAULT_SETTINGS: Dict[str, tuple] = {
     # --- confirmation logic
     "min_confirmations": (3, "Trend filtresine ek olarak gereken teyit sayısı (momentum, MACD+hacim, kırılım: 1-3)."),
     "exit_on_trend_flip": (True, "Fiyat EMA trend çizgisinin ters tarafında kapanınca pozisyonu kapat."),
+    # --- optional regime filters (0 = kapalı). Açıkken trend filtresi gibi zorunludur.
+    "ema_slope_bars": (0, "Trend EMA'sı son N mumda yükseliyor (long) / düşüyor (short) olmalı. 0 = kapalı."),
+    "adx_period": (14, "ADX periyodu (adx_min > 0 iken kullanılır)."),
+    "adx_min": (0.0, "Giriş için en düşük ADX (trend gücü). 0 = kapalı."),
+    "min_atr_pct": (0.0, "Giriş için ATR fiyatın en az yüzde kaçı olmalı (maliyetlere göre çok sakin piyasayı atlar). 0 = kapalı."),
     # --- risk
     "risk_per_trade_pct": (1.0, "İşlem başına riske edilen özsermaye yüzdesi."),
-    "atr_sl_multiplier": (1.5, "Stop-loss mesafesi = ATR x bu katsayı."),
-    "risk_reward_ratio": (2.0, "Take-profit mesafesi = stop mesafesi x bu oran."),
+    "round_trip_cost_pct": (0.35, "Pozisyon boyutunda hesaba katılan giriş+çıkış maliyeti (komisyon + kayma, % notional). Stopta toplam kayıp risk yüzdesini aşmaz."),
+    "atr_sl_multiplier": (3.0, "Stop-loss mesafesi = ATR x bu katsayı. Pozisyon boyutu buna göre küçülür, işlem başı risk değişmez."),
+    "risk_reward_ratio": (10.0, "Take-profit mesafesi = stop mesafesi x bu oran (10 = kazançlar çoğunlukla trailing stop ile kapanır)."),
     "trailing_enabled": (True, "Trailing stop aktif."),
-    "trailing_atr_multiplier": (2.0, "Trailing stop mesafesi = ATR x bu katsayı."),
+    "trailing_atr_multiplier": (5.0, "Trailing stop mesafesi = ATR x bu katsayı."),
     "trailing_activation_r": (1.0, "Trailing stop, fiyat kaç R lehimize gidince devreye girsin (0 = hemen)."),
     "daily_loss_limit_pct": (5.0, "Günlük zarar bu yüzdeyi aşarsa UTC gece yarısına kadar yeni pozisyon açma."),
     "max_open_positions": (3, "Maksimum eşzamanlı açık pozisyon."),
@@ -159,7 +165,7 @@ class Config:
 
     # market
     symbols: List[str] = field(default_factory=lambda: ["BTC/USDT"])
-    timeframe: str = "1h"
+    timeframe: str = "4h"
     ohlcv_limit: int = 500
 
     # engine
@@ -267,7 +273,7 @@ def load_config(env_file: Optional[str] = ".env") -> Config:
         paper_trading=_env_bool("PAPER_TRADING", True),
         live_confirm=_env_str("LIVE_TRADING_CONFIRM"),
         symbols=symbols,
-        timeframe=_env_str("TIMEFRAME", "1h"),
+        timeframe=_env_str("TIMEFRAME", "4h"),
         ohlcv_limit=_env_int("OHLCV_LIMIT", 500),
         poll_interval_sec=_env_int("POLL_INTERVAL_SEC", 30),
         db_path=_env_str("DB_PATH", "data/tradingbot.db"),
