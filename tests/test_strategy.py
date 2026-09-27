@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from backtest import generate_synthetic_ohlcv, run_backtest
 from config import default_settings_values
@@ -60,7 +61,8 @@ def test_backtest_smoke_and_accounting():
     res = run_backtest(df, {"min_confirmations": 2}, starting_balance=10_000)
     stats = res["stats"]
     assert stats["trades"] == len(res["trades"]) > 0
-    assert stats["final_equity"] == 10_000 + sum(t.pnl for t in res["trades"])
+    # cash is accumulated trade by trade; compare with tolerance for float summation order
+    assert stats["final_equity"] == pytest.approx(10_000 + sum(t.pnl for t in res["trades"]))
     for t in res["trades"]:
         assert t.exit_reason in {"stop_loss", "take_profit", "trend_flip", "end_of_data"}
         # risk per trade never exceeds 1% of starting-ish equity by more than fees + slippage noise
