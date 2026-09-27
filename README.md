@@ -24,6 +24,7 @@ olma gerekmez. Evdeyken bilgisayardan, dışarıdayken telefondan kullanın, ama
 
 **Android kurulumu**
 1. `.apk` dosyasını telefona indirip açın. "Bilinmeyen kaynaklardan yükleme" izni isterse verin.
+   Uygulama 64 bit (arm64) telefonlar içindir; son yıllarda çıkan Android telefonların hepsi böyledir.
 2. İlk ekranda aynı ayarları seçip **Kaydet ve botu başlat**'a basın. Bildirim izni isterse verin: bot
    çalışırken bildirim çubuğunda "Trading bot çalışıyor" yazar.
 3. **Önemli:** Ayarlar > Uygulamalar > Trading Bot > Pil > **Kısıtlanmamış** seçin (uygulama da bunu

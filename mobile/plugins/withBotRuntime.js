@@ -8,6 +8,8 @@
 // - Cleartext HTTP is allowed only to 127.0.0.1, where the phone's own API listens.
 // - Release builds are signed with the keystore named by ANDROID_KEYSTORE_* environment
 //   variables when they are set (CI release builds), otherwise with the debug key.
+// - ANDROID_ABIS picks the CPU types to build for (comma separated). Phones are arm64-v8a;
+//   x86_64 is for emulators. CI builds arm64-v8a only, which roughly halves the APK.
 const fs = require('fs');
 const path = require('path');
 const {
@@ -18,6 +20,10 @@ const {
 } = require('expo/config-plugins');
 
 const CHAQUOPY_VERSION = '17.0.0';
+const ABIS = (process.env.ANDROID_ABIS || 'arm64-v8a,x86_64')
+  .split(',')
+  .map((a) => a.trim())
+  .filter((a) => /^(arm64-v8a|armeabi-v7a|x86_64|x86)$/.test(a));
 const PYTHON_VERSION = '3.12';
 const PACKAGE_PATH = 'com/barantheviber/tradingbot';
 
@@ -53,7 +59,8 @@ function withChaquopyGradle(config) {
     let g = cfg.modResults.contents;
     if (g.includes('com.chaquo.python')) return cfg;
     g = g.replace('apply plugin: "com.android.application"', 'apply plugin: "com.android.application"\napply plugin: "com.chaquo.python"');
-    g = g.replace(/defaultConfig\s*\{/, `defaultConfig {\n        ndk { abiFilters "arm64-v8a", "x86_64" }`);
+    const abis = ABIS.map((a) => `"${a}"`).join(', ');
+    g = g.replace(/defaultConfig\s*\{/, `defaultConfig {\n        ndk { abiFilters ${abis} }`);
     g = g.replace(
       /signingConfigs\s*\{/,
       `signingConfigs {
