@@ -1,0 +1,61 @@
+{
+  "name": "tradingbot-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Trading bot için masaüstü izleme uygulaması (Electron + React). Botun HTTP API'sine bağlanır.",
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "mock": "node mock/server.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "build": "tsc -p tsconfig.node.json && vite build",
+    "start": "electron .",
+    "test": "tsc -p tsconfig.node.json && node --test \"tests/*.test.mjs\"",
+    "dist": "npm run build && electron-builder",
+    "dist:dir": "npm run build && electron-builder --dir"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^38.0.0",
+    "electron-builder": "^25.1.8",
+    "lightweight-charts": "^4.2.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  },
+  "build": {
+    "appId": "com.barantheviber.tradingbot.desktop",
+    "productName": "Trading Bot Desktop",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
+  }
+}
