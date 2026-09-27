@@ -25,6 +25,15 @@ class Fill:
     order_id: Optional[str] = None
 
 
+def check_market_limits(limits: Mapping[str, Any], quantity: float, price: float) -> Tuple[bool, str]:
+    """Compare an order with the exchange's minimum amount / minimum cost."""
+    if limits.get("min_amount") and quantity < limits["min_amount"]:
+        return False, f"quantity {quantity} < min amount {limits['min_amount']}"
+    if limits.get("min_cost") and quantity * price < limits["min_cost"]:
+        return False, f"notional {quantity * price:.4f} < min cost {limits['min_cost']}"
+    return True, "ok"
+
+
 class BaseExecutionClient(ABC):
     mode: str = "base"
 
