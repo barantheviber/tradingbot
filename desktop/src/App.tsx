@@ -129,7 +129,7 @@ export default function App() {
         ))}
       </nav>
       <main className="content">
-        {tab === "overview" && <Overview status={status} positions={positions} onChanged={refresh} />}
+        {tab === "overview" && <Overview status={status} positions={positions} onChanged={refresh} showWelcome={local.managed} />}
         {tab === "trades" && <Trades />}
         {tab === "settings" && <Settings />}
         {tab === "logs" && <Logs logs={logs} onRefresh={refreshLogs} />}

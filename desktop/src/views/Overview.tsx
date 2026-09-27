@@ -4,18 +4,21 @@ import { api } from "../api";
 import CandleChart from "../components/CandleChart";
 import PnlSummaryCard from "../components/PnlSummaryCard";
 import PositionsTable from "../components/PositionsTable";
+import WelcomeCard from "../components/WelcomeCard";
 import { usePolling } from "../usePolling";
 
 interface Props {
   status: Status | null;
   positions: Position[];
   onChanged: () => void;
+  /** first-run notes (only when the bot runs inside this app) */
+  showWelcome?: boolean;
 }
 
 const TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"];
 const CANDLE_REFRESH_MS = 15_000;
 
-export default function Overview({ status, positions, onChanged }: Props) {
+export default function Overview({ status, positions, onChanged, showWelcome = false }: Props) {
   const symbols = status?.symbols ?? [];
   const [symbol, setSymbol] = useState<string>("");
   const [timeframe, setTimeframe] = useState<string>("");
@@ -41,6 +44,7 @@ export default function Overview({ status, positions, onChanged }: Props) {
 
   return (
     <div className="overview">
+      {showWelcome && <WelcomeCard timeframe={status?.timeframe ?? null} />}
       <div className="card chart-card">
         <div className="card-head">
           <h3>Grafik</h3>

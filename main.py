@@ -13,7 +13,7 @@ import json
 import sys
 
 from bot_engine import BotEngine
-from config import DEFAULT_SETTINGS, legacy_env_warnings, load_config
+from config import DEFAULT_SETTINGS, ConfigError, legacy_env_warnings, load_config
 from exchange_client import ExchangeClient
 from execution import build_execution_client
 from logging_setup import setup_logging
@@ -41,7 +41,11 @@ def build_engine(config, state: StateManager) -> BotEngine:
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    config = load_config(args.env_file)
+    try:
+        config = load_config(args.env_file)
+    except ConfigError as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        return 2
     log = setup_logging(config.log_dir, config.log_level, secrets=config.secrets())
 
     for warning in legacy_env_warnings():

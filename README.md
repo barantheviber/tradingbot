@@ -7,6 +7,46 @@ Varsayılan olarak **paper trading** modunda çalışır; canlıya geçiş bilin
 > oynaktır ve tüm sermayenizi kaybedebilirsiniz. Canlıya geçmeden önce botu uzun süre paper trading
 > modunda ve mümkünse borsanın testnet ortamında doğrulayın. Kullanımdan doğan tüm sorumluluk size aittir.
 
+## Hızlı başlangıç: uygulamaları kurun (kod gerekmez)
+
+Bilgisayar ve telefon uygulamaları botu **kendi içlerinde** çalıştırır: terminal, Python ya da aynı ağda
+olma gerekmez. Evdeyken bilgisayardan, dışarıdayken telefondan kullanın, ama ikisini aynı anda değil.
+
+**İndirme:** GitHub'da deponun **Releases** sayfasındaki son sürümden iki dosyayı indirin:
+`TradingBot-Setup-<sürüm>.exe` (Windows) ve `TradingBot-<sürüm>.apk` (Android).
+
+**Windows kurulumu**
+1. `.exe` dosyasını çalıştırın. Windows "Bilinmeyen yayıncı" derse **Ek bilgi > Yine de çalıştır**'a basın
+   (uygulama ücretli bir sertifikayla imzalı değil).
+2. Kurulum bitince uygulama açılır. İlk ekranda borsayı, sembolleri (ör. `BTC/USDT, ETH/USDT`), zaman
+   dilimini ve sanal başlangıç bakiyesini seçip **Kaydet ve botu başlat**'a basın.
+3. Bot uygulama açıkken çalışır. Uygulamayı kapatırsanız bot durur; tekrar açınca kaldığı yerden devam eder.
+
+**Android kurulumu**
+1. `.apk` dosyasını telefona indirip açın. "Bilinmeyen kaynaklardan yükleme" izni isterse verin.
+2. İlk ekranda aynı ayarları seçip **Kaydet ve botu başlat**'a basın. Bildirim izni isterse verin: bot
+   çalışırken bildirim çubuğunda "Trading bot çalışıyor" yazar.
+3. **Önemli:** Ayarlar > Uygulamalar > Trading Bot > Pil > **Kısıtlanmamış** seçin (uygulama da bunu
+   sorar). Yoksa Android botu arka planda durdurabilir. Bot çalışırken telefon biraz daha fazla pil harcar.
+
+**Paper ve canlı mod.** Uygulamalar her zaman **paper trading** (sanal bakiye) ile çalışır: gerçek emir
+göndermez, borsa API anahtarı istemez ve canlıya geçiş düğmesi yoktur. Canlı mod yalnızca kaynak koddan,
+`.env` ile bilinçli olarak açılabilir (bkz. [Canlıya geçiş](#canlıya-geçiş-bilinçli-adım)); önce uzun
+süre paper trading ile deneyin.
+
+**Cihaz değiştirirken (bilgisayar ⇄ telefon).** İki cihazın hafızası ayrıdır: birinde açılan pozisyonu
+diğeri bilmez. Bu yüzden:
+1. Kullandığınız cihazda **Durdur**'a basın. Açık pozisyon varsa uygulama sorar: **Pozisyonları kapat ve
+   durdur**'u seçin.
+2. Bot durduktan sonra diğer cihazda **Başlat**'a basın.
+3. İki cihazda botu aynı anda çalıştırmayın.
+
+**Sık sorulanlar**
+- *Bot başladı ama hiçbir şey olmuyor.* Bot yalnızca kapanmış mumlarda karar verir; `1h` zaman diliminde
+  ilk karar bir saate kadar sürebilir. **Loglar** sekmesinde ne yaptığını görebilirsiniz.
+- *"Borsaya bağlanmaya çalışıyor" yazıyor.* İnternet bağlantısını kontrol edin; bot kendiliğinden tekrar dener.
+- *Güncelleme nasıl yapılır?* Yeni sürümü Releases sayfasından indirip kurun. Ayarlarınız ve geçmişiniz korunur.
+
 ## Mimari
 
 ```

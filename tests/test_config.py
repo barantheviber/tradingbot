@@ -11,3 +11,31 @@ def test_legacy_env_vars_are_reported(monkeypatch):
     warnings = legacy_env_warnings()
     assert len(warnings) == 3
     assert any("SYMBOL" in w and "SYMBOLS" in w for w in warnings)
+
+
+import pytest
+
+from config import Config, ConfigError, load_config
+
+
+def test_bad_numeric_env_value_gives_clear_error(monkeypatch):
+    monkeypatch.setenv("POLL_INTERVAL_SEC", "30s")
+    with pytest.raises(ConfigError, match="POLL_INTERVAL_SEC"):
+        load_config(env_file=None)
+
+
+def test_default_config_is_valid():
+    assert Config().validate() == []
+
+
+@pytest.mark.parametrize("field,value,needle", [
+    ("timeframe", "1hour", "TIMEFRAME"),
+    ("paper_starting_balance", 0.0, "PAPER_STARTING_BALANCE"),
+    ("paper_fee_rate", 0.5, "PAPER_FEE_RATE"),
+    ("max_retries", -1, "MAX_RETRIES"),
+    ("retry_max_delay", 0.5, "RETRY_MAX_DELAY"),
+    ("symbols", ["BTCUSDT"], "SYMBOLS"),
+])
+def test_invalid_values_are_reported(field, value, needle):
+    cfg = Config(**{field: value})
+    assert any(needle in p for p in cfg.validate())

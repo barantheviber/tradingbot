@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import path from "node:path";
 import type { LocalBotState, LocalSetup } from "../shared/localBot";
 import type { ApiCall, ConnectionInput, Position, WsState } from "../shared/types";
@@ -15,6 +15,9 @@ let quitting = false;
 // With TRADINGBOT_API_URL set (development against `python -m api.demo`) the app only connects;
 // otherwise it runs the bundled bot on this computer and talks to it on 127.0.0.1.
 const managed = !process.env.TRADINGBOT_API_URL;
+
+// Turkish for Chromium's own texts (context menus, form validation) and no English menu bar.
+app.commandLine.appendSwitch("lang", "tr");
 
 const feed = new LiveFeed(
   (event) => win?.webContents.send("ws:event", event),
@@ -144,6 +147,7 @@ ipcMain.handle("localBot:stop", async () => {
 });
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   if (managed && localBot.getSetup()) saveConfig(LOCAL_BASE_URL);
   createWindow();
   restartFeed();

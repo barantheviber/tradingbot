@@ -35,13 +35,14 @@ export async function performCall<T>(baseUrl: string, token: string, call: ApiCa
     if (!res.ok) {
       const detail =
         body && typeof body === "object" && "detail" in body ? String((body as { detail: unknown }).detail) : text;
-      const hint = res.status === 401 || res.status === 403 ? "Token geçersiz veya eksik" : `HTTP ${res.status}`;
-      return { ok: false, status: res.status, error: detail ? `${hint}: ${detail}` : hint };
+      // The API's messages are Turkish; the status code is only shown when there is no message.
+      const error = res.status === 401 || res.status === 403 ? "Token geçersiz veya eksik" : detail || `HTTP ${res.status}`;
+      return { ok: false, status: res.status, error };
     }
     return { ok: true, data: body as T };
   } catch (err) {
     const e = err as Error;
-    const msg = e.name === "AbortError" ? "İstek zaman aşımına uğradı" : `Bota bağlanılamadı (${e.message})`;
+    const msg = e.name === "AbortError" ? "Bot yanıt vermedi (zaman aşımı)" : "Bota bağlanılamadı; bot kapalı olabilir";
     return { ok: false, status: 0, error: msg };
   } finally {
     clearTimeout(timer);

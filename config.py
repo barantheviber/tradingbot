@@ -32,14 +32,28 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+class ConfigError(ValueError):
+    """An environment variable has a value that cannot be parsed."""
+
+
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name)
-    return int(raw) if raw not in (None, "") else default
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        raise ConfigError(f"{name} bir tam sayı olmalı (şu an: {raw!r}).") from None
 
 
 def _env_float(name: str, default: float) -> float:
     raw = os.getenv(name)
-    return float(raw) if raw not in (None, "") else default
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError:
+        raise ConfigError(f"{name} bir sayı olmalı (şu an: {raw!r}).") from None
 
 
 def _env_str(name: str, default: str = "") -> str:
@@ -193,6 +207,22 @@ class Config:
             problems.append("POLL_INTERVAL_SEC en az 1 olmalı.")
         if self.market_type not in {"spot", "future", "swap", "margin"}:
             problems.append(f"MARKET_TYPE geçersiz: {self.market_type}")
+        if not _valid_timeframe(self.timeframe):
+            problems.append(f"TIMEFRAME geçersiz: {self.timeframe!r} (ör. 15m, 1h, 4h, 1d)")
+        if self.ohlcv_limit < 1:
+            problems.append("OHLCV_LIMIT en az 1 olmalı.")
+        if self.paper_starting_balance <= 0:
+            problems.append("PAPER_STARTING_BALANCE sıfırdan büyük olmalı.")
+        if not 0 <= self.paper_fee_rate < 0.1:
+            problems.append("PAPER_FEE_RATE 0 ile 0.1 arasında olmalı (0.001 = %0.1).")
+        if self.paper_slippage_bps < 0:
+            problems.append("PAPER_SLIPPAGE_BPS negatif olamaz.")
+        if self.max_retries < 0:
+            problems.append("MAX_RETRIES negatif olamaz.")
+        if self.retry_base_delay <= 0 or self.retry_max_delay < self.retry_base_delay:
+            problems.append("RETRY_BASE_DELAY > 0 ve RETRY_MAX_DELAY >= RETRY_BASE_DELAY olmalı.")
+        if any("/" not in s for s in self.symbols):
+            problems.append("SYMBOLS 'BASE/QUOTE' biçiminde olmalı (ör. BTC/USDT).")
         if not self.paper_trading:
             if not (self.api_key and self.api_secret):
                 problems.append("Canlı mod için API_KEY ve API_SECRET .env içinde tanımlı olmalı.")
@@ -212,6 +242,15 @@ class Config:
         )
 
     __str__ = __repr__
+
+
+def _valid_timeframe(timeframe: str) -> bool:
+    try:
+        import ccxt
+
+        return ccxt.Exchange.parse_timeframe(timeframe) > 0
+    except Exception:
+        return False
 
 
 def load_config(env_file: Optional[str] = ".env") -> Config:

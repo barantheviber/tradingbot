@@ -57,24 +57,24 @@ def validate_setting(key: str, raw_value: Any, current: Mapping[str, Any]) -> An
         raise UnknownSettingError(key)
     target = type(DEFAULT_SETTINGS[key][0])
     if target is bool and not isinstance(raw_value, (bool, str)):
-        raise ValueError("expected true/false")
+        raise ValueError("açık/kapalı (true/false) olmalı")
     if target in (int, float) and isinstance(raw_value, str) and raw_value.strip() == "":
-        raise ValueError("value is empty")
+        raise ValueError("değer boş olamaz")
     value = coerce_to_type(raw_value, target)
 
     if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError("value must be a finite number")
+        raise ValueError("geçerli bir sayı olmalı")
     bounds = BOUNDS.get(key)
     if bounds is not None:
         low, high, low_inclusive = bounds
         if low is not None and (value < low if low_inclusive else value <= low):
-            raise ValueError(f"must be {'>=' if low_inclusive else '>'} {low}")
+            raise ValueError(f"{low} değerinden {'büyük veya eşit' if low_inclusive else 'büyük'} olmalı")
         if high is not None and value > high:
-            raise ValueError(f"must be <= {high}")
+            raise ValueError(f"en fazla {high} olabilir")
 
     merged = dict(current)
     merged[key] = value
     for small, large in ORDERED_PAIRS:
         if key in (small, large) and small in merged and large in merged and not merged[small] < merged[large]:
-            raise ValueError(f"{small} must be less than {large} ({merged[small]} >= {merged[large]})")
+            raise ValueError(f"{small}, {large} değerinden küçük olmalı ({merged[small]} >= {merged[large]})")
     return value
