@@ -4,6 +4,7 @@ const LABELS: Record<string, string> = {
   trading_enabled: "Yeni işlem açılsın",
   allow_short: "Short işlemlere izin ver",
   ema_trend_period: "Trend EMA periyodu",
+  ema_slope_bars: "Trend eğimi (mum)",
   rsi_period: "RSI periyodu",
   rsi_long_min: "Long için RSI alt sınırı",
   rsi_long_max: "Long için RSI üst sınırı",
@@ -16,8 +17,11 @@ const LABELS: Record<string, string> = {
   volume_ma_period: "Hacim ortalaması periyodu",
   volume_factor: "Hacim çarpanı",
   atr_period: "ATR periyodu",
+  adx_period: "ADX periyodu",
+  adx_min: "En düşük ADX (trend gücü)",
   donchian_period: "Donchian kanal periyodu",
   breakout_atr_buffer: "Kırılım payı (ATR)",
+  min_atr_pct: "En düşük oynaklık (ATR %)",
   min_confirmations: "Gereken teyit sayısı",
   exit_on_trend_flip: "Trend dönünce çık",
   risk_per_trade_pct: "İşlem başına risk (%)",
@@ -29,6 +33,7 @@ const LABELS: Record<string, string> = {
   daily_loss_limit_pct: "Günlük zarar limiti (%)",
   max_open_positions: "En fazla açık pozisyon",
   max_symbol_exposure_pct: "Sembol başına en fazla büyüklük (%)",
+  round_trip_cost_pct: "Hesaba katılan işlem maliyeti (%)",
   exchange_stop_enabled: "Borsada stop emri (canlı mod)",
 };
 
