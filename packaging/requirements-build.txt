@@ -1,0 +1,2 @@
+# Extra tools for building the installers (not needed to run the bot from source).
+pyinstaller>=6.10
