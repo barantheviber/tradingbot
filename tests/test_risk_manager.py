@@ -120,6 +120,17 @@ def _rm(**overrides):
 def test_plan_trade_ok():
     plan = _rm().plan_trade("BTC/USDT", "long", 100.0, 2.0, equity=10_000, open_positions=[])
     assert plan.allowed
+    # defaults: stop 3 ATR, take-profit 10R
+    assert plan.stop_loss == pytest.approx(94.0)
+    assert plan.take_profit == pytest.approx(160.0)
+    # 1% of 10k = 100 risk / 6 distance = 16.67 units = 1667 notional, under the 25% cap
+    assert plan.notional == pytest.approx(10_000 / 6)
+    assert plan.risk_amount == pytest.approx(100.0)
+
+
+def test_plan_trade_caps_notional_at_symbol_exposure():
+    plan = _rm(atr_sl_multiplier=1.5, risk_reward_ratio=2.0).plan_trade("BTC/USDT", "long", 100.0, 2.0,
+                                                                          equity=10_000, open_positions=[])
     assert plan.stop_loss == pytest.approx(97.0)
     assert plan.take_profit == pytest.approx(106.0)
     # 1% of 10k = 100 risk / 3 distance = 33.33 units = 3333 notional > 25% cap (2500) -> capped
@@ -154,6 +165,6 @@ def test_plan_trade_limited_by_available_cash():
 def test_settings_are_read_live():
     settings = default_settings_values()
     rm = RiskManager(lambda: settings)
-    assert rm.plan_trade("A", "long", 100, 2, 10_000, []).stop_loss == pytest.approx(97)
+    assert rm.plan_trade("A", "long", 100, 2, 10_000, []).stop_loss == pytest.approx(94)
     settings["atr_sl_multiplier"] = 2.0
     assert rm.plan_trade("A", "long", 100, 2, 10_000, []).stop_loss == pytest.approx(96)

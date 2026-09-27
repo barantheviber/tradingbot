@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from config import DEFAULT_SETTINGS
@@ -97,3 +99,39 @@ def test_refuses_database_from_earlier_version(db):
     assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert "schema_version" not in tables and "settings" not in tables
+
+
+def test_migration_2_moves_untouched_old_defaults_only(tmp_path):
+    import sqlite3
+
+    from config import DEFAULT_SETTINGS
+    from state_manager import MIGRATIONS, RETUNED_DEFAULTS_2, StateManager
+
+    PREVIOUS_DEFAULTS_V1 = {k: old for k, (old, _) in RETUNED_DEFAULTS_2.items()}
+    assert all(DEFAULT_SETTINGS[k][0] == new for k, (_, new) in RETUNED_DEFAULTS_2.items())
+
+    path = str(tmp_path / "old.db")
+    conn = sqlite3.connect(path, isolation_level=None)
+    conn.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+    dict(MIGRATIONS)[1](conn)
+    conn.execute("INSERT INTO schema_version(version) VALUES (1)")
+    for key, value in {**PREVIOUS_DEFAULTS_V1, "risk_reward_ratio": 3.0}.items():  # user edited R:R
+        conn.execute("INSERT INTO settings(key, value, description, updated_at) VALUES (?, ?, '', 'x')",
+                     (key, json.dumps(value)))
+    conn.close()
+
+    sm = StateManager(path)
+    assert sm.schema_version() >= 2
+    assert sm.get_setting("atr_sl_multiplier") == DEFAULT_SETTINGS["atr_sl_multiplier"][0]
+    assert sm.get_setting("trailing_atr_multiplier") == DEFAULT_SETTINGS["trailing_atr_multiplier"][0]
+    assert sm.get_setting("rsi_long_max") == DEFAULT_SETTINGS["rsi_long_max"][0]
+    assert sm.get_setting("risk_reward_ratio") == 3.0  # kept
+
+
+def test_new_database_gets_new_defaults(tmp_path):
+    from config import DEFAULT_SETTINGS
+    from state_manager import StateManager
+
+    sm = StateManager(str(tmp_path / "new.db"))
+    sm.seed_default_settings(DEFAULT_SETTINGS)
+    assert sm.get_setting("atr_sl_multiplier") == DEFAULT_SETTINGS["atr_sl_multiplier"][0]

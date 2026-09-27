@@ -309,7 +309,7 @@ def main(argv=None) -> int:
     src.add_argument("--csv", help="CSV with timestamp,open,high,low,close,volume")
     src.add_argument("--synthetic", type=int, metavar="N", help="Use N synthetic candles (offline)")
     ap.add_argument("--symbol", default="BTC/USDT")
-    ap.add_argument("--timeframe", default="1h")
+    ap.add_argument("--timeframe", default="4h")
     ap.add_argument("--days", type=int, default=180)
     ap.add_argument("--exchange", default=None, help="ccxt exchange id (default: EXCHANGE_ID or binance)")
     ap.add_argument("--db", help="Read strategy/risk settings from this state DB")

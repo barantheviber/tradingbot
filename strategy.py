@@ -51,6 +51,11 @@ class StrategyParams:
     min_confirmations: int = 3
     allow_short: bool = False
     exit_on_trend_flip: bool = True
+    # regime filters (0 = off); mandatory like the trend filter when enabled
+    ema_slope_bars: int = 0
+    adx_period: int = 14
+    adx_min: float = 0.0
+    min_atr_pct: float = 0.0
 
     @classmethod
     def from_settings(cls, settings: Mapping[str, Any]) -> "StrategyParams":
@@ -63,13 +68,18 @@ class StrategyParams:
         params = cls(**kwargs)
         params.min_confirmations = int(min(3, max(1, params.min_confirmations)))
         params.macd_cross_lookback = max(1, params.macd_cross_lookback)
+        params.ema_slope_bars = max(0, params.ema_slope_bars)
+        params.adx_period = max(1, params.adx_period)
+        params.adx_min = max(0.0, params.adx_min)
+        params.min_atr_pct = max(0.0, params.min_atr_pct)
         return params
 
     @property
     def warmup(self) -> int:
         """Minimum number of closed candles before signals are meaningful."""
         return max(self.ema_trend_period, self.macd_slow + self.macd_signal, self.donchian_period + 1,
-                   self.volume_ma_period + 1, self.rsi_period, self.atr_period) + 5
+                   self.volume_ma_period + 1, self.rsi_period, self.atr_period,
+                   self.ema_trend_period + self.ema_slope_bars, 2 * self.adx_period) + 5
 
 
 @dataclass
@@ -118,6 +128,20 @@ def atr(df: pd.DataFrame, period: int) -> pd.Series:
     return tr.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
 
 
+def adx(df: pd.DataFrame, period: int) -> pd.Series:
+    """Wilder's Average Directional Index (trend strength, direction-agnostic)."""
+    up = df["high"].diff()
+    down = -df["low"].diff()
+    plus_dm = up.where((up > down) & (up > 0), 0.0)
+    minus_dm = down.where((down > up) & (down > 0), 0.0)
+    tr_smooth = atr(df, period)
+    alpha = 1.0 / period
+    plus_di = 100 * plus_dm.ewm(alpha=alpha, adjust=False, min_periods=period).mean() / tr_smooth
+    minus_di = 100 * minus_dm.ewm(alpha=alpha, adjust=False, min_periods=period).mean() / tr_smooth
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0.0, np.nan)
+    return dx.ewm(alpha=alpha, adjust=False, min_periods=period).mean()
+
+
 def compute_indicators(df: pd.DataFrame, params: StrategyParams) -> pd.DataFrame:
     """Return a copy of ``df`` with indicator + signal columns (closed candles only)."""
     out = df.copy()
@@ -147,6 +171,25 @@ def compute_indicators(df: pd.DataFrame, params: StrategyParams) -> pd.DataFrame
     # --- layer flags (NaN comparisons evaluate to False -> safe during warm-up)
     out["trend_long"] = close > out["ema_trend"]
     out["trend_short"] = close < out["ema_trend"]
+
+    # --- optional regime filters (mandatory when enabled, like the trend filter)
+    regime_long = pd.Series(True, index=out.index)
+    regime_short = pd.Series(True, index=out.index)
+    if params.ema_slope_bars > 0:
+        prev_ema = out["ema_trend"].shift(params.ema_slope_bars)
+        regime_long &= out["ema_trend"] > prev_ema
+        regime_short &= out["ema_trend"] < prev_ema
+    if params.adx_min > 0:
+        out["adx"] = adx(out, params.adx_period)
+        strong = out["adx"] >= params.adx_min
+        regime_long &= strong
+        regime_short &= strong
+    if params.min_atr_pct > 0:
+        volatile = out["atr"] / close * 100.0 >= params.min_atr_pct
+        regime_long &= volatile
+        regime_short &= volatile
+    out["regime_long"] = regime_long
+    out["regime_short"] = regime_short
     out["mom_long"] = out["rsi"].between(params.rsi_long_min, params.rsi_long_max)
     out["mom_short"] = out["rsi"].between(params.rsi_short_min, params.rsi_short_max)
     out["macdvol_long"] = recent_up & above & volume_ok
@@ -162,8 +205,8 @@ def compute_indicators(df: pd.DataFrame, params: StrategyParams) -> pd.DataFrame
     valid = pd.Series(np.arange(len(out)) >= params.warmup - 1, index=out.index)
     valid &= out[["ema_trend", "rsi", "macd_signal", "atr", "donchian_high", "volume_ma"]].notna().all(axis=1)
 
-    out["long_signal"] = valid & out["trend_long"] & (long_conf >= params.min_confirmations)
-    short_raw = valid & out["trend_short"] & (short_conf >= params.min_confirmations)
+    out["long_signal"] = valid & out["trend_long"] & regime_long & (long_conf >= params.min_confirmations)
+    short_raw = valid & out["trend_short"] & regime_short & (short_conf >= params.min_confirmations)
     out["short_signal"] = short_raw if params.allow_short else False
     out["exit_long"] = bool(params.exit_on_trend_flip) & valid & out["trend_short"]
     out["exit_short"] = bool(params.exit_on_trend_flip) & valid & out["trend_long"]

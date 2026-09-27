@@ -70,7 +70,8 @@ jobs:
         env:
           VARIANTS: ${{ inputs.variants }}
         run: |
-          args=()
+          # the defaults before the 2026-09 retune, kept for comparison (docs/backtest-raporu.md)
+          args=(--variant "previous_defaults:atr_sl_multiplier=1.5,risk_reward_ratio=2,trailing_atr_multiplier=2,rsi_long_max=70")
           while IFS= read -r line; do
             [ -n "$line" ] && args+=(--variant "$line")
           done <<< "$VARIANTS"
