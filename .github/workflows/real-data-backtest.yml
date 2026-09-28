@@ -35,6 +35,7 @@ on:
       - "performance.py"
       - "scripts/download_history.py"
       - "scripts/backtest_matrix.py"
+      - "scripts/walk_forward.py"
       - ".github/workflows/real-data-backtest.yml"
 
 permissions:
@@ -92,6 +93,16 @@ jobs:
           done <<< "$VARIANTS"
           python scripts/backtest_matrix.py --data data/history --out backtest-results --split "$SPLIT" --yearly "${args[@]}"
           cat backtest-results/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Walk-forward (4h)
+        # rolling 24-month fit / 6-month test windows: do the defaults hold up, and does re-fitting help?
+        run: |
+          if ls data/history/*-4h.csv* > /dev/null 2>&1; then
+            python scripts/walk_forward.py --data data/history --timeframe 4h --out backtest-results/walk-forward
+            cat backtest-results/walk-forward/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No 4h history in this run; skipping the walk-forward."
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
