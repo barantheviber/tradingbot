@@ -9,8 +9,8 @@ const require = createRequire(import.meta.url);
 const {
   CHECK_EVERY_MS,
   LATEST_RELEASE_API,
-  checkForUpdate,
   cleanState,
+  createUpdateChecker,
   dismissedState,
   dueForCheck,
   isNewer,
@@ -95,12 +95,14 @@ test("saved state that is damaged or edited counts as never checked", () => {
 function fakeDeps({ now = T0, stored = null, answer = { tag_name: "v0.3.2" }, current = "0.3.1" } = {}) {
   const d = {
     requests: 0,
+    saves: 0,
     saved: stored,
     clock: now,
     current,
     now: () => d.clock,
     load: async () => d.saved,
     save: async (s) => {
+      d.saves += 1;
       d.saved = JSON.parse(JSON.stringify(s));
     },
     fetchLatest: async () => {
@@ -114,38 +116,50 @@ function fakeDeps({ now = T0, stored = null, answer = { tag_name: "v0.3.2" }, cu
 
 test("a newer release shows the notice, with the link built from the version", async () => {
   const d = fakeDeps({ answer: { tag_name: "v0.3.2", html_url: "https://evil.example/download.exe" } });
-  const u = await checkForUpdate(d);
+  const u = await createUpdateChecker(d).check();
   assert.deepEqual(u, { version: "0.3.2", url: "https://github.com/barantheviber/tradingbot/releases/tag/v0.3.2" });
   assert.equal(d.requests, 1);
   assert.equal(d.saved.latest, "0.3.2");
+  assert.equal(d.saved.lastChecked, T0);
 });
 
 test("within a day the saved answer is used without asking GitHub again", async () => {
   const d = fakeDeps();
-  await checkForUpdate(d);
+  await createUpdateChecker(d).check();
   d.clock = T0 + DAY - 1;
-  assert.equal((await checkForUpdate(d))?.version, "0.3.2");
+  // a restarted app reads the saved state
+  assert.equal((await createUpdateChecker(d).check())?.version, "0.3.2");
   assert.equal(d.requests, 1);
   d.clock = T0 + DAY;
-  await checkForUpdate(d);
+  await createUpdateChecker(d).check();
   assert.equal(d.requests, 2);
+});
+
+test("asks that overlap send one request", async () => {
+  const d = fakeDeps();
+  const checker = createUpdateChecker(d);
+  const [a, b] = await Promise.all([checker.check(), checker.check()]);
+  assert.equal(a?.version, "0.3.2");
+  assert.equal(b?.version, "0.3.2");
+  assert.equal(d.requests, 1);
 });
 
 test("offline: no notice, no error, and no second try the same day", async () => {
   const d = fakeDeps({ answer: new Error("offline") });
-  assert.equal(await checkForUpdate(d), null);
+  const checker = createUpdateChecker(d);
+  assert.equal(await checker.check(), null);
   assert.equal(d.saved.lastChecked, T0);
   d.clock = T0 + 60_000;
-  assert.equal(await checkForUpdate(d), null);
+  assert.equal(await checker.check(), null);
   assert.equal(d.requests, 1);
 });
 
 test("an earlier answer survives a failed check", async () => {
   const d = fakeDeps({ stored: { lastChecked: T0 - DAY, latest: "0.3.2", dismissed: null }, answer: new Error("503") });
-  assert.equal((await checkForUpdate(d))?.version, "0.3.2");
+  assert.equal((await createUpdateChecker(d).check())?.version, "0.3.2");
 });
 
-test("storage that fails to read or write never breaks the check", async () => {
+test("storage that fails to read or write never breaks the check or sends extra requests", async () => {
   const d = fakeDeps();
   d.load = async () => {
     throw new Error("unreadable");
@@ -153,13 +167,56 @@ test("storage that fails to read or write never breaks the check", async () => {
   d.save = async () => {
     throw new Error("disk full");
   };
-  assert.equal((await checkForUpdate(d))?.version, "0.3.2");
+  const checker = createUpdateChecker(d);
+  for (let hour = 0; hour < 24; hour++) {
+    d.clock = T0 + hour * 3_600_000;
+    assert.equal((await checker.check())?.version, "0.3.2");
+  }
+  assert.equal(d.requests, 1, "still at most one request a day");
+  await checker.dismiss("0.3.2");
+  assert.equal(await checker.check(), null, "Kapat works even when it cannot be saved");
+});
+
+test("Kapat pressed while the daily request is running keeps the notice closed", async () => {
+  const d = fakeDeps({ stored: { lastChecked: T0 - DAY, latest: "0.3.2", dismissed: null } });
+  let answer;
+  d.fetchLatest = () => {
+    d.requests += 1;
+    return new Promise((resolve) => (answer = resolve));
+  };
+  const checker = createUpdateChecker(d);
+  const running = checker.check();
+  await new Promise((r) => setImmediate(r));
+  const closing = checker.dismiss("0.3.2");
+  answer({ tag_name: "v0.3.2" });
+  assert.equal(await running, null);
+  await closing;
+  assert.equal(await checker.check(), null);
+  assert.equal(d.saved.dismissed, "0.3.2");
+  assert.equal(d.saved.lastChecked, T0);
+  assert.equal(await createUpdateChecker(d).check(), null, "and after a restart");
+});
+
+test("a closed notice comes back for the next release", async () => {
+  const d = fakeDeps();
+  const checker = createUpdateChecker(d);
+  await checker.check();
+  await checker.dismiss("0.3.2");
+  d.clock = T0 + DAY;
+  d.fetchLatest = async () => ({ tag_name: "v0.3.3" });
+  assert.equal((await checker.check())?.version, "0.3.3");
 });
 
 test("the installed version is never nagged about itself or an older release", async () => {
-  assert.equal(await checkForUpdate(fakeDeps({ current: "0.3.2" })), null);
-  assert.equal(await checkForUpdate(fakeDeps({ current: "0.4.0" })), null);
-  assert.equal(await checkForUpdate(fakeDeps({ current: "0.0.0-dev" })), null);
+  assert.equal(await createUpdateChecker(fakeDeps({ current: "0.3.2" })).check(), null);
+  assert.equal(await createUpdateChecker(fakeDeps({ current: "0.4.0" })).check(), null);
+  assert.equal(await createUpdateChecker(fakeDeps({ current: "0.0.0-dev" })).check(), null);
+});
+
+test("builds that are not releases carry a version that never shows the notice", () => {
+  assert.equal(JSON.parse(read("../package.json")).version, "0.0.0-dev");
+  assert.equal(JSON.parse(read("../../mobile/app.json")).expo.version, "0.0.0-dev");
+  assert.equal(releaseVersion("0.0.0-dev"), null);
 });
 
 test("neither app downloads or installs updates by itself", () => {

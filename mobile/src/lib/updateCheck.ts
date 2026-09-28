@@ -90,37 +90,76 @@ export interface UpdateCheckDeps {
   fetchLatest(): Promise<unknown>;
 }
 
-/**
- * Asks GitHub at most once a day (a failed attempt counts too) and says whether to show the
- * notice. Never throws: when offline or GitHub is unreachable it stays silent until tomorrow.
- */
-export async function checkForUpdate(deps: UpdateCheckDeps): Promise<UpdateInfo | null> {
-  let state: UpdateCheckState;
-  try {
-    state = cleanState(await deps.load());
-  } catch {
-    state = cleanState(null);
-  }
-  const now = deps.now();
-  if (dueForCheck(state.lastChecked, now)) {
-    state = { ...state, lastChecked: now };
-    try {
-      const latest = latestFromResponse(await deps.fetchLatest());
-      if (latest) state = { ...state, latest };
-    } catch {
-      // offline or GitHub unreachable: try again tomorrow
-    }
-    try {
-      await deps.save(state);
-    } catch {
-      // not worth bothering the user about
-    }
-  }
-  return updateToShow(state, deps.current);
+export interface UpdateChecker {
+  /**
+   * Asks GitHub at most once a day (a failed attempt counts too) and says whether to show the
+   * notice. Never throws: when offline or GitHub is unreachable it stays silent until tomorrow.
+   */
+  check(): Promise<UpdateInfo | null>;
+  /** "Kapat": no notice for this version again (a later one shows again). */
+  dismiss(version: unknown): Promise<void>;
 }
 
-/** "Kapat": no notice for this version again. */
+/** "Kapat" for this version: returns the state to keep. */
 export function dismissedState(state: UpdateCheckState, version: unknown): UpdateCheckState {
   const v = releaseVersion(version);
   return v ? { ...state, dismissed: v } : state;
+}
+
+/**
+ * One per app. The app is the only writer of the saved state, so after the first read the state
+ * in memory is the truth and every change is also written to storage. A storage that cannot be
+ * written therefore never turns into a request per ask, and a check running while the user
+ * presses "Kapat" cannot bring the closed notice back.
+ */
+export function createUpdateChecker(deps: UpdateCheckDeps): UpdateChecker {
+  let memory: UpdateCheckState | null = null;
+  let checking: Promise<UpdateInfo | null> | null = null;
+  let saving: Promise<void> = Promise.resolve();
+
+  async function state(): Promise<UpdateCheckState> {
+    if (!memory) {
+      try {
+        memory = cleanState(await deps.load());
+      } catch {
+        memory = cleanState(null);
+      }
+    }
+    return memory;
+  }
+
+  // Writes one at a time, always the newest state; a failed write stays in memory until the app closes.
+  function keep(next: UpdateCheckState): Promise<void> {
+    memory = next;
+    saving = saving.then(() => deps.save(memory ?? next)).catch(() => undefined);
+    return saving;
+  }
+
+  async function run(): Promise<UpdateInfo | null> {
+    const now = deps.now();
+    const before = await state();
+    if (dueForCheck(before.lastChecked, now)) {
+      let latest = before.latest;
+      try {
+        latest = latestFromResponse(await deps.fetchLatest()) ?? latest;
+      } catch {
+        // offline or GitHub unreachable: try again tomorrow
+      }
+      // Re-read memory: "Kapat" may have been pressed while the request was running.
+      await keep({ ...(await state()), lastChecked: now, latest });
+    }
+    return updateToShow(await state(), deps.current);
+  }
+
+  return {
+    check() {
+      checking ??= run().finally(() => {
+        checking = null;
+      });
+      return checking;
+    },
+    async dismiss(version) {
+      await keep(dismissedState(await state(), version));
+    },
+  };
 }

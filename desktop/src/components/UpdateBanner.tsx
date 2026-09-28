@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { UPDATE_TITLE, type UpdateInfo } from "../../shared/updateCheck";
 
 // The main process asks GitHub at most once a day; asking it every hour keeps an app that stays
@@ -8,13 +8,15 @@ const ASK_EVERY_MS = 60 * 60 * 1000;
 /** "Yeni sürüm var": a newer release exists. It only opens the download page; it installs nothing. */
 export default function UpdateBanner() {
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  // An answer that was on its way while "Kapat" was pressed must not bring the notice back.
+  const closed = useRef<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     const ask = () =>
       void window.desktop.updates
         .check()
-        .then((u) => alive && setUpdate(u))
+        .then((u) => alive && setUpdate(u && u.version !== closed.current ? u : null))
         .catch(() => undefined);
     ask();
     const t = setInterval(ask, ASK_EVERY_MS);
@@ -28,6 +30,7 @@ export default function UpdateBanner() {
 
   function close() {
     if (!update) return;
+    closed.current = update.version;
     void window.desktop.updates.dismiss(update.version).catch(() => undefined);
     setUpdate(null);
   }

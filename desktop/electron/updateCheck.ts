@@ -5,27 +5,17 @@ import { app, net, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  checkForUpdate,
-  cleanState,
-  dismissedState,
+  createUpdateChecker,
   LATEST_RELEASE_API,
   releasePageUrl,
   releaseVersion,
   REQUEST_TIMEOUT_MS,
-  type UpdateCheckState,
+  type UpdateChecker,
   type UpdateInfo,
 } from "../shared/updateCheck";
 
 function storeFile(): string {
   return path.join(app.getPath("userData"), "update-check.json");
-}
-
-async function load(): Promise<unknown> {
-  return JSON.parse(await fs.promises.readFile(storeFile(), "utf8"));
-}
-
-async function save(state: UpdateCheckState): Promise<void> {
-  await fs.promises.writeFile(storeFile(), JSON.stringify(state), "utf8");
 }
 
 async function fetchLatest(): Promise<unknown> {
@@ -37,32 +27,27 @@ async function fetchLatest(): Promise<unknown> {
   return res.json();
 }
 
-// The window asks every hour; one check at a time, so two asks never send two requests.
-let checking: Promise<UpdateInfo | null> | null = null;
+let checker: UpdateChecker | null = null;
+
+function getChecker(): UpdateChecker {
+  checker ??= createUpdateChecker({
+    current: app.getVersion(),
+    now: () => Date.now(),
+    load: async () => JSON.parse(await fs.promises.readFile(storeFile(), "utf8")),
+    save: (state) => fs.promises.writeFile(storeFile(), JSON.stringify(state), "utf8"),
+    fetchLatest,
+  });
+  return checker;
+}
 
 /** The newer release to tell the user about, or null (always null in development). */
 export function availableUpdate(): Promise<UpdateInfo | null> {
-  if (!app.isPackaged) return Promise.resolve(null);
-  checking ??= checkForUpdate({ current: app.getVersion(), now: Date.now, load, save, fetchLatest }).finally(() => {
-    checking = null;
-  });
-  return checking;
+  return app.isPackaged ? getChecker().check() : Promise.resolve(null);
 }
 
 /** "Kapat": no notice for this version again (a later one shows again). */
 export async function dismissUpdate(version: unknown): Promise<void> {
-  await checking; // a check still writing would otherwise put the closed notice back
-  let state: UpdateCheckState;
-  try {
-    state = cleanState(await load());
-  } catch {
-    state = cleanState(null);
-  }
-  try {
-    await save(dismissedState(state, version));
-  } catch {
-    // the notice comes back next time; nothing else to do
-  }
+  if (app.isPackaged) await getChecker().dismiss(version);
 }
 
 /** Opens the release page in the browser. The URL is built here, never passed in. */

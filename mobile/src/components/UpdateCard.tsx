@@ -1,18 +1,15 @@
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppState, Linking, Platform, Text, View } from 'react-native';
 
 import {
-  checkForUpdate,
-  cleanState,
-  dismissedState,
+  createUpdateChecker,
   LATEST_RELEASE_API,
   releasePageUrl,
   releaseVersion,
   REQUEST_TIMEOUT_MS,
   UPDATE_TITLE,
-  type UpdateCheckState,
   type UpdateInfo,
 } from '../lib/updateCheck';
 import { colors } from '../lib/theme';
@@ -21,15 +18,6 @@ import { Button, styles } from './ui';
 const KEY = 'tradingbot.updateCheck';
 // GitHub is asked at most once a day (lib/updateCheck.ts); asking this often only reads the saved answer.
 const ASK_EVERY_MS = 60 * 60 * 1000;
-
-async function load(): Promise<unknown> {
-  const raw = await SecureStore.getItemAsync(KEY);
-  return raw ? JSON.parse(raw) : null;
-}
-
-async function save(state: UpdateCheckState): Promise<void> {
-  await SecureStore.setItemAsync(KEY, JSON.stringify(state));
-}
 
 async function fetchLatest(): Promise<unknown> {
   const abort = new AbortController();
@@ -46,39 +34,35 @@ async function fetchLatest(): Promise<unknown> {
   }
 }
 
-// One check at a time, so the screen and the app coming back to the front never send two requests.
-let checking: Promise<UpdateInfo | null> | null = null;
-
-function availableUpdate(): Promise<UpdateInfo | null> {
-  // Only the installed Android app: a development build has no release version to compare.
-  const current = Constants.expoConfig?.version;
-  if (__DEV__ || Platform.OS !== 'android' || !current) return Promise.resolve(null);
-  checking ??= checkForUpdate({ current, now: Date.now, load, save, fetchLatest }).finally(() => {
-    checking = null;
-  });
-  return checking;
-}
-
-async function dismiss(version: string): Promise<void> {
-  await checking; // a check still writing would otherwise put the closed notice back
-  let state: UpdateCheckState;
-  try {
-    state = cleanState(await load());
-  } catch {
-    state = cleanState(null);
-  }
-  await save(dismissedState(state, version)).catch(() => undefined);
-}
+// Only the installed Android app checks: a development build has no release version to compare.
+const installed = Constants.expoConfig?.version;
+const checker =
+  !__DEV__ && Platform.OS === 'android' && installed
+    ? createUpdateChecker({
+        current: installed,
+        now: () => Date.now(),
+        load: async () => {
+          const raw = await SecureStore.getItemAsync(KEY);
+          return raw ? JSON.parse(raw) : null;
+        },
+        save: (state) => SecureStore.setItemAsync(KEY, JSON.stringify(state)),
+        fetchLatest,
+      })
+    : null;
 
 /** "Yeni sürüm var": a newer release exists. It only opens the download page; it installs nothing. */
 export function UpdateCard() {
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  // An answer that was on its way while "Kapat" was pressed must not bring the notice back.
+  const closed = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!checker) return;
     let alive = true;
     const ask = () =>
-      void availableUpdate()
-        .then((u) => alive && setUpdate(u))
+      void checker
+        .check()
+        .then((u) => alive && setUpdate(u && u.version !== closed.current ? u : null))
         .catch(() => undefined);
     ask();
     const timer = setInterval(ask, ASK_EVERY_MS);
@@ -97,7 +81,8 @@ export function UpdateCard() {
     if (v) Linking.openURL(releasePageUrl(v)).catch(() => undefined);
   };
   const close = () => {
-    void dismiss(update.version);
+    closed.current = update.version;
+    void checker?.dismiss(update.version);
     setUpdate(null);
   };
 
