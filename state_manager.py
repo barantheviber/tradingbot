@@ -21,7 +21,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
-from logging_setup import get_logger
+from logging_setup import get_logger, redact
 
 log = get_logger("state")
 
@@ -375,6 +375,13 @@ class StateManager:
                                      (date, mode)).fetchone()
         return float(row["start_equity"])
 
+    def shift_day_start_equity(self, mode: str, delta: float, date: Optional[str] = None) -> None:
+        self._execute("UPDATE daily_stats SET start_equity = start_equity + ? WHERE date = ? AND mode = ?",
+                      (delta, date or utc_today(), mode))
+
+    def delete_day_start_equity(self, mode: str, date: Optional[str] = None) -> None:
+        self._execute("DELETE FROM daily_stats WHERE date = ? AND mode = ?", (date or utc_today(), mode))
+
     def get_day_start_equity(self, mode: str, date: Optional[str] = None) -> Optional[float]:
         row = self._query_one("SELECT start_equity FROM daily_stats WHERE date = ? AND mode = ?",
                               (date or utc_today(), mode))
@@ -386,8 +393,8 @@ class StateManager:
         try:
             self._execute(
                 "INSERT INTO event_log(timestamp, level, category, symbol, message, data) VALUES (?, ?, ?, ?, ?, ?)",
-                (utc_now_iso(), level, category, symbol, message,
-                 json.dumps(data, default=str) if data else None),
+                (utc_now_iso(), level, category, symbol, redact(message),
+                 redact(json.dumps(data, default=str)) if data else None),
             )
         except sqlite3.Error:  # logging must never crash the bot
             pass
@@ -470,6 +477,12 @@ class StateManager:
             self.delete_state(f"safety_peak_equity:{mode}")
         else:
             self.set_state(f"safety_peak_equity:{mode}", equity)
+
+    def get_states_with_prefix(self, prefix: str) -> Dict[str, Any]:
+        escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        rows = self._query("SELECT key, value FROM runtime_state WHERE key LIKE ? ESCAPE '\\' ORDER BY key",
+                           (escaped + "%",))
+        return {r["key"]: json.loads(r["value"]) for r in rows}
 
     def delete_state(self, key: str) -> None:
         self._execute("DELETE FROM runtime_state WHERE key = ?", (key,))
