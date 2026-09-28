@@ -4,8 +4,9 @@ name: Paper run on real exchanges
 # public market data, with no API keys: start, candles, a paper entry sized by
 # the risk manager, restart with state recovery, close through the API.
 # See scripts/paper_smoke.py. GitHub's runners are in the US, so Binance is
-# reached through data-api.binance.vision (spot only; Binance futures cannot be
-# checked from here).
+# reached through data-api.binance.vision (spot only). Binance futures and Bybit
+# refuse US addresses (Bybit answers 403 on every host), so they cannot be
+# checked from here.
 
 on:
   workflow_dispatch:
@@ -39,41 +40,22 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: binance spot 4h
-            experimental: false
             args: >-
               --exchange binance --market-type spot --symbols BTC/USDT,ETH/USDT --timeframe 4h
               --spot-markets-only --replace-host api.binance.com=data-api.binance.vision
           - name: binance spot 1m, next candle
-            experimental: false
             args: >-
               --exchange binance --market-type spot --symbols BTC/USDT --timeframe 1m --wait-new-candle
               --spot-markets-only --replace-host api.binance.com=data-api.binance.vision
           - name: okx spot 4h
-            experimental: true
             args: --exchange okx --market-type spot --symbols BTC/USDT,ETH/USDT --timeframe 4h
           - name: okx swap 4h
-            experimental: true
             args: --exchange okx --market-type swap --symbols BTC/USDT:USDT,ETH/USDT:USDT --timeframe 4h
-          - name: bybit spot 4h
-            experimental: true
-            args: --exchange bybit --market-type spot --symbols BTC/USDT,ETH/USDT --timeframe 4h
-          - name: bybit swap 4h
-            experimental: true
-            args: --exchange bybit --market-type swap --symbols BTC/USDT:USDT,ETH/USDT:USDT --timeframe 4h
-          - name: bybit swap 4h (bytick.com)
-            experimental: true
-            args: >-
-              --exchange bybit --market-type swap --symbols BTC/USDT:USDT,ETH/USDT:USDT --timeframe 4h
-              --hostname bytick.com
-          - name: kraken spot 4h
-            experimental: true
-            args: --exchange kraken --market-type spot --symbols BTC/USDT,ETH/USDT --timeframe 4h
     steps:
       - uses: actions/checkout@v4
 
