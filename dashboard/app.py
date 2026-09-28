@@ -23,6 +23,7 @@ import plotly.graph_objects as go  # noqa: E402
 import streamlit as st  # noqa: E402
 from plotly.subplots import make_subplots  # noqa: E402
 
+from dashboard.logic import apply_setting_changes, dashboard_is_local_only  # noqa: E402
 from config import DEFAULT_SETTINGS, load_config  # noqa: E402
 from exchange_client import ExchangeClient  # noqa: E402
 from performance import compute_performance  # noqa: E402
@@ -31,6 +32,15 @@ from state_manager import LegacyDatabaseError, StateManager  # noqa: E402
 from strategy import StrategyParams, compute_indicators  # noqa: E402
 
 st.set_page_config(page_title="Trading Bot", page_icon="📈", layout="wide")
+
+# The dashboard has no login but can close positions and edit settings, so it
+# only runs when Streamlit listens on loopback (see .streamlit/config.toml).
+if not dashboard_is_local_only(st.get_option("server.address")) and \
+        os.getenv("DASHBOARD_ALLOW_REMOTE", "").strip().lower() != "true":
+    st.error("Panel yalnızca bu bilgisayardan açılabilir: şifresi yok ama pozisyon kapatıp ayar değiştirebiliyor. "
+             "Depo kök klasöründen `streamlit run dashboard/app.py` ile başlatın (.streamlit/config.toml "
+             "adresi 127.0.0.1 yapar) veya `--server.address 127.0.0.1` ekleyin.")
+    st.stop()
 
 
 @st.cache_resource
@@ -255,15 +265,8 @@ def render_settings() -> None:
             else:
                 new_values[key] = col.text_input(key, value=str(value), help=help_text)
         if st.form_submit_button("Kaydet", type="primary"):
-            changed, errors = [], []
             current = {r["key"]: r["value"] for r in rows}
-            for key, value in new_values.items():
-                if value != current[key]:
-                    try:
-                        state.set_setting(key, value)
-                        changed.append(key)
-                    except ValueError as exc:
-                        errors.append(f"{key}: {exc}")
+            changed, errors = apply_setting_changes(state, current, new_values)
             if changed:
                 st.success("Güncellendi: " + ", ".join(changed))
                 state.log_event("INFO", "settings", "Settings changed from dashboard", data={"keys": changed})

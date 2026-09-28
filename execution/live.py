@@ -17,9 +17,13 @@ import time
 
 import ccxt
 
+from exchange_client import OrderNotPlaced
 from execution.base import BaseExecutionClient, Fill, check_market_limits
 from risk_manager import unrealized_pnl
 
+
+# ccxt exchange ids whose derivative balance `total` already includes unrealised PnL.
+BALANCE_INCLUDES_UPNL = ("binance",)
 
 STOP_RETRY_SEC = 600  # wait before re-trying a stop order the exchange refused
 
@@ -37,13 +41,23 @@ class LiveExecutionClient(BaseExecutionClient):
     def supports_side(self, side: str) -> bool:
         return side == "long" or self.market_type != "spot"
 
+    # Quantities in state are base units (BTC). ccxt futures/swap order amounts are
+    # contracts, so convert at the exchange boundary (contract size 1 for spot).
+    def _contract_size(self, symbol: str) -> float:
+        getter = getattr(self.exchange, "contract_size", None)
+        size = float(getter(symbol)) if getter else 1.0
+        return size if size > 0 else 1.0
+
     def normalize_quantity(self, symbol: str, quantity: float) -> float:
-        return self.exchange.amount_to_precision(symbol, quantity)
+        size = self._contract_size(symbol)
+        return self.exchange.amount_to_precision(symbol, quantity / size) * size
 
     def check_order_limits(self, symbol: str, quantity: float, price: float) -> Tuple[bool, str]:
         if quantity <= 0:
             return False, "quantity below exchange precision"
-        limits = self.exchange.market_limits(symbol)
+        limits = dict(self.exchange.market_limits(symbol))
+        if limits.get("min_amount"):  # the exchange states it in contracts
+            limits["min_amount"] = float(limits["min_amount"]) * self._contract_size(symbol)
         return check_market_limits(limits, quantity, price)
 
     def _submit_market_order(self, symbol: str, side: str, quantity: float, reference_price: float,
@@ -54,7 +68,11 @@ class LiveExecutionClient(BaseExecutionClient):
         if reduce_only and self.market_type == "spot" and side == "sell":
             quantity = self._sellable_quantity(symbol, quantity)
         requested = self.normalize_quantity(symbol, quantity) or quantity
-        order = self.exchange.create_market_order(symbol, side, quantity, params)
+        order = self.exchange.create_market_order(symbol, side, quantity / self._contract_size(symbol), params)
+        return self._fill_from_order(order, symbol, side, requested, reference_price)
+
+    def _fill_from_order(self, order: Mapping[str, Any], symbol: str, side: str, requested: float,
+                         reference_price: float) -> Fill:
         if order.get("id") and (not order.get("average") or order.get("filled") is None
                                 or order.get("status") == "open"):
             try:
@@ -68,7 +86,7 @@ class LiveExecutionClient(BaseExecutionClient):
                              extra={"symbol": symbol, "order_id": order.get("id")})
             filled = requested
         else:
-            filled = float(order["filled"])
+            filled = float(order["filled"]) * self._contract_size(symbol)
         fee = self._fee_in_quote(order, symbol, price, filled)
         base_fee = self._fee_in_base(order, symbol)
         if side == "buy" and self.market_type == "spot" and 0 < base_fee < filled:
@@ -116,13 +134,19 @@ class LiveExecutionClient(BaseExecutionClient):
         free = float((balance.get("free") or {}).get(self.quote) or 0.0)
         return total, free
 
+    def _balance_includes_unrealized(self) -> bool:
+        """Binance derivatives report `total` as margin balance (wallet + unrealised
+        PnL); most others (e.g. Bybit) report the wallet balance."""
+        exchange_id = str(getattr(self.exchange, "exchange_id", "") or "")
+        return self.market_type != "spot" and exchange_id.startswith(BALANCE_INCLUDES_UPNL)
+
     def get_equity(self, prices: Mapping[str, float]) -> float:
         total, _ = self._quote_balance()
         for p in self.open_positions():
             price = prices.get(p["symbol"], p["entry_price"])
             if self.market_type == "spot":
                 total += p["quantity"] * price  # base asset held
-            else:
+            elif not self._balance_includes_unrealized():
                 total += unrealized_pnl(p["side"], p["entry_price"], price, p["quantity"])
         return total
 
@@ -176,7 +200,8 @@ class LiveExecutionClient(BaseExecutionClient):
         side = "sell" if position["side"] == "long" else "buy"
         params: Dict[str, Any] = {"reduceOnly": True} if self.market_type != "spot" else {}
         try:
-            order = self.exchange.create_stop_order(symbol, side, float(position["quantity"]),
+            order = self.exchange.create_stop_order(symbol, side,
+                                                    float(position["quantity"]) / self._contract_size(symbol),
                                                     float(position["stop_loss"]), params)
         except ccxt.NotSupported as exc:
             self._warn_once(f"stop_unsupported:{symbol}", symbol,
@@ -217,7 +242,7 @@ class LiveExecutionClient(BaseExecutionClient):
         return self._stop_fill(order, position)
 
     def _stop_fill(self, order: Mapping[str, Any], position: Mapping[str, Any]) -> Optional[Fill]:
-        filled = float(order.get("filled") or 0.0)
+        filled = float(order.get("filled") or 0.0) * self._contract_size(position["symbol"])
         if filled <= 0:
             return None
         price = float(order.get("average") or order.get("price") or order.get("stopPrice")
@@ -242,6 +267,8 @@ class LiveExecutionClient(BaseExecutionClient):
         stop that disappeared (cancelled by hand, expired) or was never placed is
         placed again; a stop for the wrong amount or level is replaced."""
         for position in self.open_positions():
+            if self.state.get_state(f"unknown_exit:{position['id']}"):
+                continue  # an exit may already have happened; settle that first
             info = self.state.get_state(self._stop_key(position))
             if not info:
                 self.protect_position(position)
@@ -280,3 +307,41 @@ class LiveExecutionClient(BaseExecutionClient):
             return
         self.state.set_state(key, True)
         self._decision("WARNING", symbol, message)
+
+    # ------------------------------------------- orders with unknown outcome
+    def resolve_pending_orders(self) -> None:
+        """Every loop: book an entry whose order turned out to exist (with its stop),
+        or drop it when the exchange confirms it was never placed."""
+        for key, plan in self.state.get_states_with_prefix("pending_entry:").items():
+            symbol = key.split(":", 1)[1]
+            try:
+                order = self.exchange.resolve_order(symbol, plan["client_order_id"], int(plan["since_ms"]))
+            except OrderNotPlaced:
+                self.state.delete_state(key)
+                self._decision("INFO", symbol, "Earlier entry order with unknown outcome was not placed")
+                continue
+            except ccxt.BaseError as exc:
+                self.log.warning("Entry order still unknown", extra={"symbol": symbol, "error": type(exc).__name__})
+                continue
+            side = plan["side"]
+            fill = self._fill_from_order(order, symbol, "buy" if side == "long" else "sell",
+                                         float(plan["quantity"]), float(plan["reference_price"]))
+            self.state.delete_state(key)
+            self._decision("WARNING", symbol, f"Earlier entry order was filled ({fill.quantity}); booking it")
+            self._book_entry(symbol, side, fill, float(plan["reference_price"]), float(plan["stop_loss"]),
+                             float(plan["take_profit"] or 0.0), float(plan["atr"] or 0.0), plan.get("reason", "signal"))
+
+    def _resolve_unknown_exit(self, position: Mapping[str, Any]) -> Optional[Fill]:
+        info = self.state.get_state(f"unknown_exit:{position['id']}")
+        if not info:
+            return None
+        symbol = position["symbol"]
+        try:
+            order = self.exchange.resolve_order(symbol, info["client_order_id"], int(info["since_ms"]))
+        except OrderNotPlaced:
+            self.state.delete_state(f"unknown_exit:{position['id']}")
+            return None  # safe to send a new exit order
+        # AmbiguousOrderError / network errors propagate: no new order while unknown
+        self.state.delete_state(f"unknown_exit:{position['id']}")
+        side = "sell" if position["side"] == "long" else "buy"
+        return self._fill_from_order(order, symbol, side, float(info["requested"]), float(info["reference_price"]))

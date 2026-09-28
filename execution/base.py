@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+from exchange_client import AmbiguousOrderError
 from logging_setup import get_logger
 from performance import compute_performance, format_performance
 from risk_manager import unrealized_pnl
@@ -121,7 +122,29 @@ class BaseExecutionClient(ABC):
             self._decision("INFO", symbol, f"Entry skipped: {why}", {"qty": qty, "price": reference_price})
             return None
 
-        fill = self._submit_market_order(symbol, "buy" if side == "long" else "sell", qty, reference_price)
+        try:
+            fill = self._submit_market_order(symbol, "buy" if side == "long" else "sell", qty, reference_price)
+        except AmbiguousOrderError as exc:
+            # The order may exist. Remember the plan so it can be booked (with its
+            # stop) once the exchange shows the order, and block new entries on
+            # this symbol until then.
+            self.state.set_state(f"pending_entry:{symbol}", {
+                "client_order_id": exc.client_order_id, "since_ms": exc.since_ms, "side": side, "quantity": qty,
+                "reference_price": reference_price, "stop_loss": stop_loss, "take_profit": take_profit,
+                "atr": atr, "reason": reason})
+            self._decision("ERROR", symbol, f"Entry order outcome unknown ({exc}); it will be looked up on the "
+                                            "exchange and booked with its stop if it was filled")
+            raise
+        return self._book_entry(symbol, side, fill, reference_price, stop_loss, take_profit, atr, reason)
+
+    def has_pending_entry(self, symbol: str) -> bool:
+        return self.state.get_state(f"pending_entry:{symbol}") is not None
+
+    def resolve_pending_orders(self) -> None:
+        """Settle orders whose outcome was unknown (live only)."""
+
+    def _book_entry(self, symbol: str, side: str, fill: Fill, reference_price: float, stop_loss: float,
+                    take_profit: float, atr: float, reason: str) -> Optional[Dict[str, Any]]:
         if fill.quantity <= 0:
             self._decision("WARNING", symbol, "Entry order did not fill; no position opened",
                            {"order_id": fill.order_id})
@@ -148,13 +171,30 @@ class BaseExecutionClient(ABC):
 
     def close_position(self, position: Mapping[str, Any], reference_price: float,
                        reason: str) -> Optional[Dict[str, Any]]:
+        earlier = self._resolve_unknown_exit(position)  # raises while still unknown
+        if earlier is not None:  # an earlier exit order with an unclear answer did execute
+            return self._record_close(position, earlier, reason)
         stop_fill = self._release_protective_stop(position)
         if stop_fill is not None:  # the exchange stop already closed it
             return self._record_close(position, stop_fill, "exchange_stop")
         side = position["side"]
-        fill = self._submit_market_order(position["symbol"], "sell" if side == "long" else "buy",
-                                         float(position["quantity"]), reference_price, reduce_only=True)
+        try:
+            fill = self._submit_market_order(position["symbol"], "sell" if side == "long" else "buy",
+                                             float(position["quantity"]), reference_price, reduce_only=True)
+        except AmbiguousOrderError as exc:
+            # Never re-send an exit whose outcome is unknown: look it up first next time.
+            self.state.set_state(f"unknown_exit:{position['id']}", {
+                "client_order_id": exc.client_order_id, "since_ms": exc.since_ms,
+                "requested": float(position["quantity"]), "reference_price": reference_price})
+            self.state.set_state(f"pending_close:{position['id']}", reason)
+            self._decision("ERROR", position["symbol"], f"#{position['id']}: exit order outcome unknown ({exc}); "
+                                                        "it will be looked up before any new exit order")
+            raise
         return self._record_close(position, fill, reason)
+
+    def _resolve_unknown_exit(self, position: Mapping[str, Any]) -> Optional[Fill]:
+        """Live only: settle an exit order whose outcome was unknown."""
+        return None
 
     def _record_close(self, position: Mapping[str, Any], fill: Fill, reason: str) -> Optional[Dict[str, Any]]:
         """Book a (possibly partial) exit fill.
@@ -205,7 +245,7 @@ class BaseExecutionClient(ABC):
         self.state.record_trade(position_id=pid, symbol=symbol, side=exit_side, action="close",
                                 quantity=fill.quantity, price=fill.price, fee=fill.fee, pnl=net, reason=reason,
                                 mode=self.mode, order_id=fill.order_id)
-        for key in (gross_key, pending_key, f"stop_order:{pid}", f"stop_retry_after:{pid}"):
+        for key in (gross_key, pending_key, f"stop_order:{pid}", f"stop_retry_after:{pid}", f"unknown_exit:{pid}"):
             self.state.delete_state(key)
         self._trade_log("CLOSE", symbol, {"position_id": pid, "side": side, "qty": fill.quantity,
                                           "price": fill.price, "pnl": round(net, 8), "fees": total_fees,

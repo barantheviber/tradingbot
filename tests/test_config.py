@@ -39,3 +39,16 @@ def test_default_config_is_valid():
 def test_invalid_values_are_reported(field, value, needle):
     cfg = Config(**{field: value})
     assert any(needle in p for p in cfg.validate())
+
+
+@pytest.mark.parametrize("value", ["ture", "paper", "flase", "2"])
+def test_unrecognised_paper_trading_value_never_selects_live(monkeypatch, value):
+    monkeypatch.setenv("PAPER_TRADING", value)
+    with pytest.raises(ConfigError, match="PAPER_TRADING"):
+        load_config(env_file=None)
+
+
+@pytest.mark.parametrize("value,expected", [("false", False), ("0", False), ("TRUE", True), ("", True)])
+def test_paper_trading_recognised_values(monkeypatch, value, expected):
+    monkeypatch.setenv("PAPER_TRADING", value)
+    assert load_config(env_file=None).paper_trading is expected
