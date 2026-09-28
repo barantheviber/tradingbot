@@ -1,0 +1,80 @@
+name: Paper run on real exchanges
+
+# Runs the whole bot (LocalRuntime, as the apps do) in paper mode against real
+# public market data, with no API keys: start, candles, a paper entry sized by
+# the risk manager, restart with state recovery, close through the API.
+# See scripts/paper_smoke.py. GitHub's runners are in the US, so Binance is
+# reached through data-api.binance.vision (spot only). Binance futures and Bybit
+# refuse US addresses (Bybit answers 403 on every host), so they cannot be
+# checked from here.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * *" # daily
+  pull_request:
+    paths:
+      - "bot_engine.py"
+      - "config.py"
+      - "exchange_client.py"
+      - "state_manager.py"
+      - "risk_manager.py"
+      - "strategy.py"
+      - "execution/**"
+      - "local_runtime.py"
+      - "main.py"
+      - "api/**"
+      - "requirements.txt"
+      - "scripts/paper_smoke.py"
+      - ".github/workflows/paper-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paper-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  paper:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: binance spot 4h
+            args: >-
+              --exchange binance --market-type spot --symbols BTC/USDT,ETH/USDT --timeframe 4h
+              --spot-markets-only --replace-host api.binance.com=data-api.binance.vision
+          - name: binance spot 1m, next candle
+            args: >-
+              --exchange binance --market-type spot --symbols BTC/USDT --timeframe 1m --wait-new-candle
+              --spot-markets-only --replace-host api.binance.com=data-api.binance.vision
+          - name: okx spot 4h
+            args: --exchange okx --market-type spot --symbols BTC/USDT,ETH/USDT --timeframe 4h
+          - name: okx swap 4h
+            args: --exchange okx --market-type swap --symbols BTC/USDT:USDT,ETH/USDT:USDT --timeframe 4h
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Paper run
+        run: python scripts/paper_smoke.py ${{ matrix.args }} --log-dir smoke-logs
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs-${{ strategy.job-index }}
+          path: smoke-logs/
+          if-no-files-found: ignore

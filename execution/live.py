@@ -43,11 +43,6 @@ class LiveExecutionClient(BaseExecutionClient):
 
     # Quantities in state are base units (BTC). ccxt futures/swap order amounts are
     # contracts, so convert at the exchange boundary (contract size 1 for spot).
-    def _contract_size(self, symbol: str) -> float:
-        getter = getattr(self.exchange, "contract_size", None)
-        size = float(getter(symbol)) if getter else 1.0
-        return size if size > 0 else 1.0
-
     def normalize_quantity(self, symbol: str, quantity: float) -> float:
         size = self._contract_size(symbol)
         return self.exchange.amount_to_precision(symbol, quantity / size) * size

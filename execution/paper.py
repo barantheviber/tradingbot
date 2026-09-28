@@ -29,7 +29,8 @@ class PaperExecutionClient(BaseExecutionClient):
         if self.exchange is None or not hasattr(self.exchange, "amount_to_precision"):
             return quantity
         try:
-            return self.exchange.amount_to_precision(symbol, quantity)
+            size = self._contract_size(symbol)
+            return self.exchange.amount_to_precision(symbol, quantity / size) * size
         except Exception as exc:  # markets unavailable: keep the unrounded size
             self.log.debug("Precision unavailable", extra={"symbol": symbol, "error": str(exc)})
             return quantity
@@ -40,7 +41,9 @@ class PaperExecutionClient(BaseExecutionClient):
         if self.exchange is None or not hasattr(self.exchange, "market_limits"):
             return True, "ok"
         try:
-            limits = self.exchange.market_limits(symbol)
+            limits = dict(self.exchange.market_limits(symbol))
+            if limits.get("min_amount"):  # stated in contracts on futures / swaps
+                limits["min_amount"] = float(limits["min_amount"]) * self._contract_size(symbol)
         except Exception:
             return True, "ok"
         return check_market_limits(limits, quantity, price)
