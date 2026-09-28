@@ -139,6 +139,12 @@ DEFAULT_SETTINGS: Dict[str, tuple] = {
     "daily_loss_limit_pct": (5.0, "Günlük zarar bu yüzdeyi aşarsa UTC gece yarısına kadar yeni pozisyon açma."),
     "max_open_positions": (3, "Maksimum eşzamanlı açık pozisyon."),
     "max_symbol_exposure_pct": (25.0, "Sembol başına maksimum pozisyon büyüklüğü (özsermaye yüzdesi)."),
+    # --- automatic safety halt (paper and live)
+    "max_drawdown_halt_pct": (15.0, "Özsermaye zirveden bu yüzde kadar düşerse yeni pozisyon açmayı durdur (0 = kapalı). "
+                                    "Açık pozisyonlar stop/hedefleriyle yönetilmeye devam eder."),
+    "max_losing_streak_halt": (15, "Art arda bu kadar işlem zararla kapanırsa yeni pozisyon açmayı durdur (0 = kapalı)."),
+    "safety_halt_active": (False, "Güvenlik durdurması aktif (yeni pozisyon açılmıyor). Tekrar başlatmak için false yapın; "
+                                  "bu, zirve özsermayeyi ve kayıp serisini de sıfırlar."),
     # --- live execution
     "exchange_stop_enabled": (True, "Canlı modda stop-loss'u borsaya da emir olarak koy (bot kapalıyken de korur). "
                                     "Paper modu etkilemez."),

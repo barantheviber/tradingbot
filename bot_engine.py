@@ -164,6 +164,7 @@ class BotEngine:
             self._enforce_stops(symbol, self._last_prices[symbol])
 
         self._snapshot_day_start_equity()
+        self._check_safety_halt(settings)
 
         for symbol in self.config.symbols:
             if self.stopping:
@@ -181,6 +182,61 @@ class BotEngine:
         equity = self.executor.get_equity(self._last_prices)
         self.state.set_state("heartbeat", {"ts": time.time(), "equity": equity, "prices": self._last_prices,
                                            "mode": self.executor.mode})
+
+    def _check_safety_halt(self, settings: Dict[str, Any]) -> None:
+        """Stop new entries after a deep drawdown or a long losing streak.
+
+        The halt is the live setting ``safety_halt_active``, so it survives
+        restarts and shows in the apps; open positions keep their stops and
+        exits. It clears only when the user sets the setting back to false,
+        which also restarts peak-equity and losing-streak tracking.
+        ``settings`` (this tick's snapshot) is updated in place.
+        """
+        mode = self.executor.mode
+        halt_key = f"safety_halt:{mode}"
+        active = bool(settings.get("safety_halt_active", False))
+        try:
+            equity = float(self.executor.get_equity(self._last_prices))
+        except ccxt.BaseError as exc:
+            log.warning("Equity unavailable for safety check", extra={"error": type(exc).__name__})
+            return
+
+        if not active and self.state.get_state(halt_key) is not None:
+            self.state.reset_safety_tracking(mode, equity)
+            log.info("Safety halt cleared by user; peak equity and losing streak reset", extra={"equity": equity})
+            self.state.log_event("INFO", "risk", "Güvenlik durdurması kaldırıldı; zirve özsermaye ve kayıp serisi "
+                                                 "sıfırlandı", data={"equity": equity})
+
+        peak_key = f"safety_peak_equity:{mode}"
+        peak = self.state.get_state(peak_key)
+        if peak is None or equity > float(peak):
+            peak = equity
+            self.state.set_state(peak_key, peak)
+        if active:
+            return
+
+        peak = float(peak)
+        drawdown = (peak - equity) / peak * 100.0 if peak > 0 else 0.0
+        streak = self.state.losing_streak(mode)
+        dd_limit = float(settings.get("max_drawdown_halt_pct", 0) or 0)
+        streak_limit = int(settings.get("max_losing_streak_halt", 0) or 0)
+        reason = None
+        if dd_limit > 0 and drawdown >= dd_limit:
+            reason = f"drawdown {drawdown:.2f}% from peak {peak:.2f} >= {dd_limit:g}%"
+        elif streak_limit > 0 and streak >= streak_limit:
+            reason = f"{streak} losing trades in a row >= {streak_limit}"
+        if reason is None:
+            return
+
+        self.state.set_setting("safety_halt_active", True)
+        settings["safety_halt_active"] = True
+        self.state.set_state(halt_key, {"reason": reason, "at": time.time(), "equity": equity, "peak": peak,
+                                        "drawdown_pct": round(drawdown, 4), "losing_streak": streak})
+        log.warning("Safety halt: new entries stopped until the user clears it", extra={"reason": reason})
+        self.state.log_event("WARNING", "risk", f"Güvenlik durdurması: yeni pozisyon açılmıyor ({reason}). Açık "
+                                                "pozisyonlar stop/hedefleriyle yönetilmeye devam ediyor. Kontrol "
+                                                "ettikten sonra safety_halt_active ayarını false yapın.",
+                             data={"reason": reason, "drawdown_pct": round(drawdown, 4), "losing_streak": streak})
 
     def _snapshot_day_start_equity(self) -> None:
         """Record today's start equity on the first tick of the UTC day.
@@ -295,6 +351,9 @@ class BotEngine:
 
         if not settings.get("trading_enabled", True):
             return skip("trading disabled (kill switch)")
+        if settings.get("safety_halt_active", False):
+            halt = self.state.get_state(f"safety_halt:{self.executor.mode}") or {}
+            return skip(f"safety halt ({halt.get('reason') or 'set by user'})")
         open_positions = self.executor.open_positions()
         if any(p["symbol"] == symbol for p in open_positions):
             return skip("position already open for symbol")

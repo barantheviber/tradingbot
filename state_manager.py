@@ -434,6 +434,43 @@ class StateManager:
             (key, json.dumps(value, default=str), utc_now_iso()),
         )
 
+    # ------------------------------------------------------------ safety halt
+    def get_safety_status(self, mode: str) -> Dict[str, Any]:
+        """Automatic drawdown / losing-streak halt, for the engine and the apps.
+
+        ``active`` comes from the live setting ``safety_halt_active``; ``reason``
+        and ``since`` describe the last automatic trigger (None for a manual halt).
+        """
+        halt = self.get_state(f"safety_halt:{mode}") or {}
+        return {
+            "active": bool(self.get_setting("safety_halt_active", False)),
+            "reason": halt.get("reason"),
+            "since": halt.get("at"),
+            "peak_equity": self.get_state(f"safety_peak_equity:{mode}"),
+            "losing_streak": self.losing_streak(mode),
+        }
+
+    def losing_streak(self, mode: str) -> int:
+        """Consecutive losing closed positions, newest first, since the last reset."""
+        after_id = int((self.get_state(f"safety_reset:{mode}") or {}).get("after_position_id", 0))
+        streak = 0
+        for p in self.get_closed_positions(mode=mode, limit=1000):
+            if p["id"] <= after_id or float(p["pnl"] or 0.0) >= 0:
+                break
+            streak += 1
+        return streak
+
+    def reset_safety_tracking(self, mode: str, equity: Optional[float]) -> None:
+        """Start peak equity and the losing streak over (used when a halt is cleared)."""
+        row = self._query_one("SELECT COALESCE(MAX(id), 0) AS m FROM positions WHERE status = 'closed' AND mode = ?",
+                              (mode,))
+        self.set_state(f"safety_reset:{mode}", {"after_position_id": int(row["m"]), "at": utc_now_iso()})
+        self.delete_state(f"safety_halt:{mode}")
+        if equity is None:
+            self.delete_state(f"safety_peak_equity:{mode}")
+        else:
+            self.set_state(f"safety_peak_equity:{mode}", equity)
+
     def delete_state(self, key: str) -> None:
         self._execute("DELETE FROM runtime_state WHERE key = ?", (key,))
 
