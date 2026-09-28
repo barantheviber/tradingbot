@@ -1,6 +1,6 @@
 # Gerçek Veriyle Backtest Raporu
 
-_Tarih: 27 Eylül 2026. Veri: Binance spot, Ocak 2021 ile Ağustos 2026 arası (son tamamlanmış ay)._
+_Tarih: 27 Eylül 2026, walk-forward testi 28 Eylül 2026'da eklendi. Veri: Binance spot, Ocak 2021 ile Ağustos 2026 arası (son tamamlanmış ay)._
 
 ## Kısa özet
 
@@ -10,6 +10,7 @@ _Tarih: 27 Eylül 2026. Veri: Binance spot, Ocak 2021 ile Ağustos 2026 arası (
 - **15 dakikalık grafik her iki ayarla da ağır zarar ediyor.** Burada maliyetler kazancı aşıyor. Botu 15 dakikada çalıştırmayın. Varsayılan zaman dilimi 1 saatten **4 saate** çekildi.
 - **1 saatlik grafikte sonuç karışık.** Test döneminde ortalama +%3,4 çıktı, ama bu büyük ölçüde XRP'nin tek başına +%35 kazancından geliyor. 5 paritenin 3'ü zararda.
 - **Güvenilirlik kontrolleri karışık ama çöküş yok.** Ayarlar bir adım oynatılınca 4 saatlik sonuç kârda kalıyor; sivri, şans eseri bulunmuş bir tepe görünmüyor. Ayarlamada hiç kullanılmayan 9 altcoinde yeni ayarlar tüm dönemde eskilerden iyi (+%10,5 ve -%1,4). Ama son iki yılda bu paritelerde sonuç başa baş (+%0,6).
+- **Walk-forward testi (kayan pencereler) ayarları doğruladı, değiştirmedi.** 14 paritede, ayarların hiç görmediği Temmuz 2024 sonrası dönemde şu anki ayarlar ortalama +%2,0 kazandırdı, al-ve-tut -%7 kaybetti. Ayarları her 6 ayda yeniden seçmek daha iyi sonuç vermedi, bu yüzden varsayılanlar aynı kaldı. Ayrıntılar "Güvenilirlik kontrolleri" bölümünde.
 - **Bu sonuçlar kâr garantisi değildir.** Yeni ayarlar da sadece hareketsiz tutmaya (al-ve-tut) göre çok daha az getiri sağladı. 2022 gibi düşüş yıllarında küçük zarar etti. Ayrıntılar aşağıda.
 
 ## Yöntem
@@ -121,7 +122,7 @@ Geliştirme döneminde tek başına veya yeni ayarlarla birlikte sonucu belirgin
 
 ## Güvenilirlik kontrolleri
 
-Bu iki kontrol, ayarlar seçildikten sonra yapıldı. Sonuçlara göre hiçbir ayar değiştirilmedi.
+Bu kontroller, ayarlar seçildikten sonra yapıldı. Sonuçlara göre hiçbir ayar değiştirilmedi.
 
 ### 1. Ayarlamada hiç kullanılmayan 9 parite (4 saat)
 
@@ -175,6 +176,71 @@ Ayarlanan her değer bir adım aşağı ve yukarı oynatıldı. Diğer ayarlar s
 - Kâr hedefi yaklaştıkça (5R) sonuç zayıflıyor. Kazançları trailing stopun bırakması önemli.
 - **RSI alt sınırının hiçbir etkisi yok.** Kırılım olan mumlarda RSI zaten 50'nin üstünde. Yani momentum katmanı şu an pratikte bir şey filtrelemiyor ve sinyali trend, MACD+hacim ve kırılım katmanları belirliyor. Bu bir hata değil, ama çok katmanlı yapının bir katmanının şu an işlevsiz olduğunu bilmek gerekiyor.
 - **1 saatlik grafikte sonuç kırılgan.** Stop 3 yerine 2,5 ATR olunca tüm dönem sonucu sıfırın altına düşüyor (-%0,8), trailing 4 ATR olunca yarıya iniyor. 1 saatlik grafik için bu ayarlara güvenilmemeli.
+
+### 3. Walk-forward testi (kayan pencereler)
+
+_Eklendi: 28 Eylül 2026._
+
+İki soru soruldu. Şu anki varsayılanlar dönem dönem ayakta kalıyor mu? Ayarları her 6 ayda bir yeniden seçmek (yeniden ayarlama), sabit ayarlardan daha iyi mi?
+
+**Nasıl yapıldı (`scripts/walk_forward.py`).**
+
+- 14 parite (5 ana ve 9 ek parite), 4 saatlik mumlar, Ocak 2021 ile Ağustos 2026 arası. Maliyetler öncekiyle aynı.
+- Her pencerede 24 aylık bir **ayarlama dönemi** ve hemen arkasından 6 aylık bir **test dönemi** var. Pencere her seferinde 6 ay kayıyor. Böylece Ocak 2023 ile Ağustos 2026 arasında 8 test penceresi çıkıyor; sonuncusu 2 ay.
+- Her pencerede üç ayar karşılaştırıldı:
+  - **Sabit:** botun şu anki varsayılanları, hiç değiştirilmeden.
+  - **Yeniden ayarlama:** 160 ayar kombinasyonu (stop 2 ile 4 ATR, trailing 3 ile 6 ATR, hedef 3R ile 20R, RSI üst sınırı 70 ya da yok) ayarlama döneminde denendi. 14 paritede ortalama Sharpe'ı en yüksek olan seçildi ve test döneminde çalıştırıldı. Test dönemini hiç görmedi.
+  - **Eski varsayılanlar** (2:1), karşılaştırma için.
+- Her parite için test pencereleri uç uca eklenip tek bir test eğrisi yapıldı.
+- **Karar kuralı, test çalıştırılmadan önce yazıldı** (koddaki `decide`). Yeniden ayarlama varsayılanların yerine ancak şu üç şartın hepsini sağlarsa geçecekti. Bu şartlar hem tüm pencerelerde hem de Temmuz 2024 sonrası pencerelerde aranacaktı:
+  1. birleşik test Sharpe'ı daha yüksek,
+  2. pencerelerin yarısından fazlasında sabit ayarları geçiyor,
+  3. en kötü düşüşü 2 puandan fazla kötüleşmiyor.
+
+**Uyarı:** Sabit varsayılanlar Ocak 2021 ile Haziran 2024 arasındaki veriye bakılarak seçildi. Bu yüzden Temmuz 2024 öncesindeki 3 pencerede sabit ayarlar avantajlı, çünkü o dönemi görmüşlerdi. Adil karşılaştırma, Temmuz 2024 sonrasındaki 5 pencere.
+
+**Pencere pencere sonuçlar.** Değerler 14 paritenin ortalaması: getiri % / Sharpe / kârlı parite sayısı.
+
+| Test dönemi | Sabit (şu anki) | Yeniden ayarlama | Eski varsayılanlar | Al-ve-tut % | O pencerede seçilen ayar |
+|---|---|---|---|---|---|
+| 2023 1. yarı \* | +1,6 / 0,43 / 8 | +2,0 / 0,80 / 11 | -1,2 / -1,13 / 2 | +32 | stop 3,5 · trailing 6 · hedef 5R |
+| 2023 2. yarı \* | +3,2 / 0,75 / 10 | +3,5 / 1,08 / 10 | +0,1 / -0,29 / 5 | +92 | stop 4 · trailing 6 · hedef 5R |
+| 2024 1. yarı \* | +0,3 / -0,04 / 6 | +0,1 / -0,15 / 8 | +0,8 / 0,34 / 9 | +14 | stop 4 · trailing 6 · hedef 5R |
+| 2024 2. yarı | +2,0 / 0,41 / 11 | +2,5 / 0,40 / 11 | -0,4 / -0,21 / 6 | +63 | stop 3,5 · trailing 6 · hedef 20R |
+| 2025 1. yarı | -0,9 / -1,05 / 2 | -1,0 / -1,13 / 2 | -0,8 / -1,23 / 2 | -25 | stop 3,5 · trailing 6 · hedef 20R |
+| 2025 2. yarı | +0,6 / 0,00 / 7 | +0,4 / -0,15 / 7 | +0,2 / 0,17 / 7 | -18 | stop 3,5 · trailing 6 · hedef 20R |
+| 2026 1. yarı | -1,3 / -1,19 / 3 | -1,0 / -1,18 / 4 | -1,2 / -1,73 / 2 | -34 | stop 2 · trailing 6 · hedef 10R · RSI ≤ 70 |
+| 2026 Temmuz-Ağustos | +1,7 / 0,06 / 5 | +1,3 / 0,35 / 3 | +0,1 / -0,20 / 3 | +22 | stop 3 · trailing 4 · hedef 10R · RSI ≤ 70 |
+
+_\* Sabit ayarlar bu dönemi ayarlama sırasında görmüştü. "RSI ≤ 70" yazmayan satırlarda RSI üst sınırı yok._
+
+**Test pencereleri uç uca eklenince** (14 paritenin ortalaması):
+
+| Dönem | Ayar | Getiri % | Ort. maks. düşüş % | En kötü maks. düşüş % | Sharpe | Kârlı |
+|---|---|---|---|---|---|---|
+| Ocak 2023 - Ağustos 2026 | **sabit (şu anki)** | **+7,3** | 9,2 | 16,0 (ATOM) | **0,35** | **10/14** |
+| | yeniden ayarlama | +7,6 | 8,0 | 14,7 (ATOM) | 0,40 | 12/14 |
+| | eski varsayılanlar | -2,4 | 6,0 | 11,4 | -0,33 | 3/14 |
+| | al-ve-tut | +167 (ortanca +78) | | | | 9/14 |
+| Temmuz 2024 - Ağustos 2026 | **sabit (şu anki)** | **+2,0** | 7,3 | 9,8 | **0,08** | **9/14** |
+| | yeniden ayarlama | +2,0 | 6,6 | 10,1 | 0,07 | 9/14 |
+| | eski varsayılanlar | -2,0 | 4,6 | 9,1 | -0,45 | 4/14 |
+| | al-ve-tut | -7 (ortanca -32) | | | | 4/14 |
+
+**Karar: varsayılanlar değişmedi.** Yeniden ayarlama tüm dönemde 8 pencerenin 4'ünde, Temmuz 2024 sonrasında 5 pencerenin 2'sinde sabit ayarları geçti. Temmuz 2024 sonrasında birleşik Sharpe neredeyse aynı (0,07 ve 0,08). Kural iki dönemde de "yarıdan fazla pencerede kazanma" şartını sağlamadı. Yani ayarları her 6 ayda yeniden seçmek, sabit ayarlardan daha iyi sonuç vermiyor.
+
+**Kontrol: 12 aylık ayarlama dönemi.** Aynı test 12 aylık ayarlama dönemiyle de çalıştırıldı (10 test penceresi, Ocak 2022'den başlıyor). Yeniden ayarlama burada daha kötü çıktı: tüm dönemde Sharpe 0,13, sabit ayarlarda 0,23. Seçilen ayarlar da pencereden pencereye daha çok değişti (stop 2 ile 4 ATR, trailing 3 ile 6 ATR, hedef 3R ile 20R arası). Kısa geçmişe göre ayar seçmek gürültüye uymak demek.
+
+**Ne öğrendik:**
+
+- **Şu anki ayarlar, ayarlanırken hiç görülmeyen dönemde küçük ama pozitif kaldı.** Temmuz 2024 sonrasında 14 paritede ortalama +%2,0, 9 parite kârda, Sharpe 0,08. Bu, önceki test döneminde 5 ana paritede görülen +%4,3'ten zayıf. Üstünlük küçük.
+- **Düşen piyasada sermayeyi koruyor.** 2025 ve 2026'nın ilk yarısında al-ve-tut -%18 ile -%34 kaybederken strateji -%0,9 ile -%1,3 arasında küçük zarar etti. Temmuz 2024 sonrasında 14 paritede al-ve-tut ortalama -%7 iken strateji +%2. Ama Ocak 2023'ten beri bakınca al-ve-tut çok önde: +%167 ve +%7.
+- **Ayarlar geniş bir iyi bölgenin içinde.** 24 aylık ayarlama 8 pencerenin 7'sinde trailing 6 ATR seçti, stop da çoğunlukla 3,5 ile 4 ATR arasında kaldı. Şu anki ayarlar (stop 3, trailing 5) bu bölgeye yakın. Buna rağmen bu değerlere geçmek test döneminde bir kazanç getirmedi.
+- **Son dönemde hiçbir ayar güçlü değil.** Ayarlama döneminde bulunan en iyi Sharpe ilk 6 pencerede 0,43 ile 0,74 arasındaydı, son iki pencerede 0,19'a ve -0,01'e düştü. Son iki yılda bu strateji için piyasa zor geçti.
+- **Eski varsayılanlar (2:1) yine en kötüsü.** 14 paritenin 11'inde zararda.
+- **Otomatik fren backtest'te yok.** En kötü birleşik düşüş %16 (ATOM, 2023 ile 2026 arası). Gerçek botta %15'lik düşüş freni burada yeni işlemleri durdururdu.
+
+Bu test her pazartesi "Real-data backtest" iş akışında 5 ana paritede yeni veriyle tekrar çalışır. Sonuç, çalışmanın özet sayfasında ve `backtest-data` dalındaki `results/walk-forward` klasöründe durur.
 
 ## Paper modda ne beklemeli
 
@@ -231,7 +297,8 @@ Bu tablo pratikte şu anlama geliyor:
 4. **Denemeye değer fikirler (paper modda):**
    - Düşüş piyasalarında daha az işlem için `ema_slope_bars=50` deneyebilirsiniz. Geliştirme döneminde 2022 kaybını azalttı, ama genel sonucu iyileştirmedi.
    - Portföy düzeyinde bir test (aynı bakiyeyle birden çok parite) yapılabilir. Bu henüz yapılmadı.
-5. **Her hafta yeni veriyle kontrol edin.** GitHub Actions'daki "Real-data backtest" iş akışı her pazartesi yeni ay verisiyle tekrar çalışır; elle de başlatılabilir. Sonuçlar çalışmanın özet sayfasında ve `backtest-data` dalında durur.
+5. **Her hafta yeni veriyle kontrol edin.** GitHub Actions'daki "Real-data backtest" iş akışı her pazartesi yeni ay verisiyle tekrar çalışır; elle de başlatılabilir. Walk-forward testi de bu çalışmanın içinde. Sonuçlar çalışmanın özet sayfasında ve `backtest-data` dalında durur.
+6. **Ayarları sık sık yeniden seçmeyin.** Walk-forward testine göre son 1-2 yılın en iyi ayarına geçmek, sabit ayarlardan daha iyi sonuç vermedi.
 
 ## Kendiniz çalıştırmak için
 
@@ -239,6 +306,7 @@ Bu tablo pratikte şu anlama geliyor:
 python scripts/download_history.py --timeframes 1h,4h --start 2021-01           # data/history/ klasörüne indirir
 python scripts/backtest_matrix.py --data data/history --split 2024-07-01 --yearly \
     --variant "eski:atr_sl_multiplier=1.5,risk_reward_ratio=2,trailing_atr_multiplier=2,rsi_long_max=70"
+python scripts/walk_forward.py --data data/history --timeframe 4h                # kayan pencere testi
 python backtest.py --csv data/history/BTCUSDT-4h.csv.gz --trades-csv islemler.csv
 ```
 
