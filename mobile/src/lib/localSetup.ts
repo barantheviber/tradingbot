@@ -130,3 +130,34 @@ export function runtimeConfig(setup: LocalSetup, token: string): string {
   });
 }
 
+
+/**
+ * What the user should confirm before saving a changed setup; empty when nothing needs it.
+ * `openSymbols` are the symbols with open positions (unknown while the bot is stopped). Since #10
+ * the bot keeps enforcing stop-loss and take-profit on a symbol removed from the list, but it no
+ * longer trails that stop, and on another exchange or market it may not be able to price it at all.
+ */
+export function setupChangeWarnings(before: LocalSetup | null, after: LocalSetup, openSymbols: string[]): string[] {
+  if (!before) return [];
+  const warnings: string[] = [];
+  const open = [...new Set(openSymbols)];
+  if (open.length && (before.exchangeId !== after.exchangeId || before.marketType !== after.marketType)) {
+    warnings.push(
+      `${open.join(', ')} için açık pozisyon var. Borsa veya piyasa türü değişirse bot bu pozisyonların fiyatını ` +
+        'alamayabilir ve stop-loss çalışmayabilir. Önce pozisyonları kapatın.',
+    );
+  } else {
+    const dropped = open.filter((s) => !after.symbols.includes(s));
+    if (dropped.length)
+      warnings.push(
+        `${dropped.join(', ')} listeden çıkıyor ama açık pozisyonu var. Bot bu pozisyonun stop-loss ve kâr al ` +
+          'seviyelerini izlemeye devam eder; trailing stop artık ilerlemez ve bu sembolde yeni işlem açılmaz.',
+      );
+  }
+  if (Number(after.startingBalance) < Number(before.startingBalance))
+    warnings.push(
+      'Sanal başlangıç bakiyesini düşürmek özsermayeyi o kadar düşürür. Günlük zarar limiti ve otomatik fren bunu ' +
+        'zarar sayıp yeni pozisyon açmayı durdurabilir.',
+    );
+  return warnings;
+}

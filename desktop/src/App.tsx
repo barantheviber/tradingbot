@@ -136,7 +136,13 @@ export default function App() {
         {tab === "settings" && <Settings />}
         {tab === "logs" && <Logs logs={logs} onRefresh={refreshLogs} canOpenFolder={local.managed} />}
         {tab === "setup" && (
-          <Setup initial={setup} firstRun={false} botRunning={botUp} onSaved={() => void loadLocal()} />
+          <Setup
+            initial={setup}
+            firstRun={false}
+            botRunning={botUp}
+            openSymbols={positions.map((p) => p.symbol)}
+            onSaved={() => void loadLocal()}
+          />
         )}
         {tab === "connection" && config && (
           <Connection

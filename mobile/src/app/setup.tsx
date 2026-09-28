@@ -1,8 +1,9 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { BotRuntime } from '../../modules/bot-runtime';
+import { api } from '../api/client';
 import { Button, Card, styles } from '../components/ui';
 import { useConnection } from '../lib/connection';
 import { useLocalBot } from '../lib/localBot';
@@ -10,6 +11,7 @@ import {
   DEFAULT_SETUP,
   EXCHANGES,
   parseSymbols,
+  setupChangeWarnings,
   TIMEFRAMES,
   timeframeLabel,
   validateSetup,
@@ -40,8 +42,17 @@ function Chips<T extends string>({ options, value, onChange }: { options: { id: 
   );
 }
 
+function confirm(text: string): Promise<boolean> {
+  return new Promise((resolve) =>
+    Alert.alert('Kaydetmeden önce', text, [
+      { text: 'Vazgeç', style: 'cancel', onPress: () => resolve(false) },
+      { text: 'Yine de kaydet', onPress: () => resolve(true) },
+    ], { cancelable: true, onDismiss: () => resolve(false) }),
+  );
+}
+
 export default function SetupScreen() {
-  const { localSetup, saveLocalSetup } = useConnection();
+  const { connection, localSetup, saveLocalSetup } = useConnection();
   const bot = useLocalBot();
   const first = localSetup === null;
   const start = localSetup ?? DEFAULT_SETUP;
@@ -66,6 +77,10 @@ export default function SetupScreen() {
     const found = validateSetup(setup);
     setProblems(found);
     if (found.length) return;
+    // Open positions are only known while the bot (and its API) runs.
+    const open = running && connection ? await api.positions(connection).catch(() => []) : [];
+    const warnings = setupChangeWarnings(localSetup, setup, open.map((p) => p.symbol));
+    if (warnings.length && !(await confirm(warnings.join('\n\n')))) return;
     setBusy(true);
     try {
       const conn = await saveLocalSetup(setup);

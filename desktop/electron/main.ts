@@ -19,6 +19,17 @@ const managed = !process.env.TRADINGBOT_API_URL;
 // Turkish for Chromium's own texts (context menus, form validation) and no English menu bar.
 app.commandLine.appendSwitch("lang", "tr");
 
+// One copy of the app at a time: a second one would start a second bot on the same data folder
+// and port. Opening it again (a double click, or Windows starting it at login) shows the first.
+const primary = app.requestSingleInstanceLock();
+if (!primary) app.quit();
+app.on("second-instance", () => {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+});
+
 const feed = new LiveFeed(
   (event) => win?.webContents.send("ws:event", event),
   (state) => {
@@ -159,6 +170,7 @@ ipcMain.handle("localBot:stop", async () => {
 });
 
 app.whenReady().then(() => {
+  if (!primary) return;
   Menu.setApplicationMenu(null);
   if (managed && localBot.getSetup()) saveConfig(LOCAL_BASE_URL);
   createWindow();

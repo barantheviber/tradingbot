@@ -1,6 +1,7 @@
 // Pure helpers for the bundled bot process: what goes into its .env and its environment.
 // Kept free of Electron imports so the tests can load them directly.
 
+import type { ChildProcess } from "node:child_process";
 import type { LocalSetup } from "../shared/localBot";
 import { validateSetup } from "../shared/localBot";
 
@@ -61,6 +62,30 @@ export function exitReason(stderrTail: string): string | null {
     if (m) return m[1];
   }
   return null;
+}
+
+/**
+ * Calls onGone exactly once when the bot process is gone, and resolves then. A process that never
+ * started (the exe missing, or blocked by an antivirus) sends "error" and no "exit"; without this
+ * the app showed it as running and Durdur waited for it forever.
+ */
+export function watchExit(
+  child: ChildProcess,
+  onGone: (code: number | null, startError: Error | null) => void,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let gone = false;
+    const finish = (code: number | null, startError: Error | null) => {
+      if (gone) return;
+      gone = true;
+      onGone(code, startError);
+      resolve();
+    };
+    child.once("exit", (code) => finish(code, null));
+    child.on("error", (err) => {
+      if (child.pid === undefined) finish(null, err);
+    });
+  });
 }
 
 /** Restart delay after the n-th consecutive crash: 5 s, 10 s, 20 s ... capped at 60 s. */

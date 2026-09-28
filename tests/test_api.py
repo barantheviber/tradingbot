@@ -142,6 +142,32 @@ def test_settings_validation(env):
     assert state.get_setting("macd_fast") == 12
 
 
+def test_money_limits_stay_in_sane_ranges(env):
+    _, state, client = env
+
+    def put(key, value):
+        return client.put(f"/api/settings/{key}", headers=AUTH, json={"value": value}).status_code
+
+    assert put("risk_per_trade_pct", 5) == 200
+    for too_much in (5.01, 50, 100):
+        assert put("risk_per_trade_pct", too_much) == 422
+    assert put("daily_loss_limit_pct", 0) == 422  # the daily limit cannot be switched off
+    assert put("daily_loss_limit_pct", 20) == 200
+    assert put("daily_loss_limit_pct", 21) == 422
+    assert put("atr_sl_multiplier", 0.1) == 422  # a stop inside the noise
+    assert put("atr_sl_multiplier", 0.5) == 200
+    assert put("atr_sl_multiplier", 21) == 422
+    assert state.get_setting("risk_per_trade_pct") == 5
+
+
+def test_every_default_setting_passes_validation():
+    from api.validation import validate_setting
+
+    current = {k: v for k, (v, _) in DEFAULT_SETTINGS.items()}
+    for key, value in current.items():
+        assert validate_setting(key, value, current) == value, key
+
+
 def test_logs_after_id(env):
     _, state, client = env
     state.log_event("INFO", "signal", "one")

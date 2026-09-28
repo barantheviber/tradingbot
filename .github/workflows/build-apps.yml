@@ -169,7 +169,8 @@ jobs:
       - name: Checksums
         working-directory: files
         run: sha256sum * > SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v2
+      # Pinned to a commit (v2.6.2): this step can write to the repository.
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: v${{ env.VERSION }}
           target_commitish: ${{ github.sha }}

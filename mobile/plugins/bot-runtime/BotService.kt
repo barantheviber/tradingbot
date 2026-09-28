@@ -19,7 +19,6 @@ import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import org.json.JSONObject
 import java.io.File
-import java.util.concurrent.Executors
 
 /**
  * Runs the Python bot (packaging/android/android_runtime.py) inside the app, as a foreground
@@ -55,27 +54,48 @@ class BotService : Service() {
     const val ACTION_STOP = "com.barantheviber.tradingbot.STOP_BOT"
     private const val CHANNEL = "bot"
     private const val NOTIFICATION_ID = 4201
-    private const val MONITOR_EVERY_MS = 5_000L
   }
 
-  private val worker = Executors.newSingleThreadExecutor()
-  private var wakeLock: PowerManager.WakeLock? = null
-  @Volatile private var active = false
+  @Volatile private var wakeLock: PowerManager.WakeLock? = null
 
   private val prefs by lazy { getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
   private val memory by lazy { prefs.runMemory() }
+
+  /** Start, watch and stop (shared/BotLoop.kt); the Python calls and service lifecycle stay here. */
+  private val loop by lazy {
+    BotLoop(
+      object : BotLoop.Bot {
+        override fun start(config: String) {
+          if (!Python.isStarted()) Python.start(AndroidPlatform(applicationContext))
+          runtime().callAttr("start", File(filesDir, "bot").absolutePath, config)
+        }
+
+        override fun status(): BotLoop.Status {
+          val status = JSONObject(runtime().callAttr("status").toString())
+          return BotLoop.Status(
+            status.optBoolean("running", false),
+            if (status.isNull("error")) null else status.optString("error"),
+          )
+        }
+
+        override fun stop() {
+          if (Python.isStarted()) runtime().callAttr("stop")
+        }
+      },
+      object : BotLoop.Events {
+        override fun phase(phase: String, message: String?) = setState(phase, message)
+        override fun ended() = memory.ended()
+        override fun finished(startId: Int) = finish(startId)
+      },
+    )
+  }
 
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_STOP) {
       memory.stoppedByUser()
-      setState("stopping", null)
-      worker.execute {
-        stopRuntime()
-        setState("stopped", null)
-        finish()
-      }
+      loop.stop(startId)
       return START_NOT_STICKY
     }
     // No config in the intent: Android restarted the service after killing the process (null
@@ -83,88 +103,29 @@ class BotService : Service() {
     // bot that was running and not stopped by the user.
     val config = memory.configForStart(intent?.getStringExtra("config"))
     if (config == null) {
-      finish()
+      if (!loop.isActive) finish(startId)
       return START_NOT_STICKY
     }
     memory.started(config)
     prefs.edit().putInt("pid", Process.myPid()).apply()
     goForeground()
-    if (!active) {
-      active = true
-      setState("starting", null)
-      worker.execute { runBot(config) }
-    }
+    loop.start(config, startId)
     return START_STICKY
   }
 
   override fun onDestroy() {
-    if (active) {
-      active = false
-      stopRuntime()
-      if (prefs.getString("phase", "stopped") != "error") setState("stopped", null)
-    }
+    if (loop.shutdown() && prefs.getString("phase", "stopped") != "error") setState("stopped", null)
     releaseWakeLock()
-    worker.shutdown()
     super.onDestroy()
   }
 
   private fun runtime() = Python.getInstance().getModule("android_runtime")
 
-  private fun runBot(config: String) {
-    try {
-      if (!Python.isStarted()) Python.start(AndroidPlatform(applicationContext))
-      runtime().callAttr("start", File(filesDir, "bot").absolutePath, config)
-      setState("running", null)
-    } catch (e: Throwable) {
-      active = false
-      memory.ended()
-      setState("error", readable(e))
-      finish()
-      return
-    }
-    // Watch the Python side: if the bot or the API stops by itself, report why and end the service.
-    while (active) {
-      try {
-        Thread.sleep(MONITOR_EVERY_MS)
-      } catch (e: InterruptedException) {
-        return
-      }
-      if (!active) return
-      val status = try {
-        JSONObject(runtime().callAttr("status").toString())
-      } catch (e: Throwable) {
-        null
-      }
-      if (status != null && !status.optBoolean("running", false)) {
-        active = false
-        memory.ended()
-        val error = if (status.isNull("error")) null else status.optString("error")
-        setState(if (error != null) "error" else "stopped", error)
-        finish()
-        return
-      }
-    }
-  }
-
-  private fun stopRuntime() {
-    active = false
-    try {
-      if (Python.isStarted()) runtime().callAttr("stop")
-    } catch (e: Throwable) {
-      // the process is going away anyway; the bot's state is in SQLite
-    }
-  }
-
-  private fun finish() {
+  /** Only for the start id of the request that ended the bot: a newer start keeps the service. */
+  private fun finish(startId: Int) {
     releaseWakeLock()
     ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-    stopSelf()
-  }
-
-  private fun readable(e: Throwable): String {
-    val msg = e.message ?: e.javaClass.simpleName
-    // PyException messages start with the Python type, e.g. "RuntimeStartError: ..."
-    return msg.lineSequence().firstOrNull()?.take(400) ?: msg
+    stopSelf(startId)
   }
 
   private fun setState(phase: String, message: String?) {
