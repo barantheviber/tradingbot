@@ -93,6 +93,13 @@ jobs:
 
   android:
     runs-on: ubuntu-latest
+    # Job-wide: both `expo prebuild` and Gradle's createExpoConfig task read mobile/app.config.js.
+    # The second one writes the version the app reports at runtime (used by "Yeni sürüm var").
+    # (the same value as VERSION above; the env context is not available at job level)
+    env:
+      APP_VERSION: ${{ inputs.version || '0.0.0-dev' }}
+      # grows with every run, so a newer APK always installs over an older one
+      APP_VERSION_CODE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -117,9 +124,6 @@ jobs:
       - name: Generate the Android project
         working-directory: mobile
         env:
-          APP_VERSION: ${{ env.VERSION }}
-          # grows with every run, so a newer APK always installs over an older one
-          APP_VERSION_CODE: ${{ github.run_number }}
           # phones only (no emulator build), about a third smaller (151 MB -> 101 MB)
           ANDROID_ABIS: arm64-v8a
         run: |
@@ -145,6 +149,11 @@ jobs:
       - name: Build the APK
         working-directory: mobile/android
         run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
+      - name: Check the version inside the APK
+        # The app compares this with GitHub's latest release; a wrong value would hide or fake the notice.
+        run: |
+          unzip -p mobile/android/app/build/outputs/apk/release/app-release.apk assets/app.config \
+            | python3 -c 'import json, os, sys; v = json.load(sys.stdin)["version"]; want = os.environ["VERSION"]; print("APK version", v); sys.exit(0 if v == want else "APK says " + v + ", expected " + want)'
       - name: Name the APK
         run: |
           mkdir -p out

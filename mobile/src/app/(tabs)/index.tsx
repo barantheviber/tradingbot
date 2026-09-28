@@ -6,6 +6,7 @@ import type { Candle, Pnl } from '../../api/types';
 import { BotControl } from '../../components/BotControl';
 import { CandleChart } from '../../components/CandleChart';
 import { SafetyHaltCard } from '../../components/SafetyHaltCard';
+import { UpdateCard } from '../../components/UpdateCard';
 import { WelcomeCard } from '../../components/WelcomeCard';
 import { Banner, Card, Stat, styles } from '../../components/ui';
 import { useConnection, useRequiredConnection } from '../../lib/connection';
@@ -63,6 +64,7 @@ export default function OverviewScreen() {
       {status?.safety_halt?.active ? (
         <SafetyHaltCard halt={status.safety_halt} connection={connection} onChanged={() => void refresh()} />
       ) : null}
+      {local ? <UpdateCard /> : null}
       {local ? <WelcomeCard timeframe={status?.timeframe ?? null} /> : null}
       {error && !local ? <Banner tone="error" text={error} /> : null}
       {status && !status.bot_running && !local ? (
