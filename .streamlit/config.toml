@@ -1,0 +1,9 @@
+# The dashboard can close positions and change live settings and has no login,
+# so it only listens on this computer. Run `streamlit run dashboard/app.py` from
+# the repository root so this file is picked up.
+[server]
+address = "127.0.0.1"
+headless = true
+
+[browser]
+gatherUsageStats = false

@@ -34,6 +34,9 @@ from strategy import StrategyParams, compute_indicators, signal_from_row
 
 log = get_logger("engine")
 
+# An entry signal older than this (or than the poll-based limit) is not acted on.
+STALE_SIGNAL_MIN_SEC = 300
+
 
 def _iso_to_ms(iso: str) -> int:
     dt = datetime.fromisoformat(iso)
@@ -88,6 +91,8 @@ class BotEngine:
                                         "symbols": self.config.symbols, "timeframe": self.config.timeframe})
         self.state.log_event("INFO", "lifecycle", f"Bot starting in {self.executor.mode.upper()} mode",
                              data={"symbols": self.config.symbols, "timeframe": self.config.timeframe})
+        self._check_account_identity()
+        self._warn_about_other_mode_positions()
         self.executor.restore_open_positions()  # from SQLite; works even if the exchange is down
         while True:
             try:
@@ -101,6 +106,7 @@ class BotEngine:
                 self._interruptible_sleep(30)
                 if self.stopping:
                     raise
+        self._resolve_pending_orders()
         self._sync_exchange_stops()  # a stop that filled while the bot was off is recorded now
         self.state.set_state("bot_status", {"status": "running", "mode": self.executor.mode,
                                             "pid_started": time.time()})
@@ -149,18 +155,21 @@ class BotEngine:
     def tick(self) -> None:
         settings = self.state.get_all_settings()
         params = StrategyParams.from_settings(settings)
+        self._resolve_pending_orders()
         self._sync_exchange_stops()
 
         # Positions whose symbol was removed from SYMBOLS (e.g. .env edited while a
         # position was open) still get their stop-loss / take-profit enforced.
         watched = list(self.config.symbols)
         watched += sorted({p["symbol"] for p in self.executor.open_positions()} - set(watched))
+        fresh = set()  # symbols priced this tick; others are not traded on a stale price
         for symbol in watched:
             try:
                 self._last_prices[symbol] = self.exchange.fetch_last_price(symbol)
             except ccxt.BaseError as exc:
                 log.warning("Price fetch failed", extra={"symbol": symbol, "error": type(exc).__name__})
                 continue
+            fresh.add(symbol)
             self._enforce_stops(symbol, self._last_prices[symbol])
 
         self._snapshot_day_start_equity()
@@ -169,7 +178,7 @@ class BotEngine:
         for symbol in self.config.symbols:
             if self.stopping:
                 return
-            if symbol not in self._last_prices:
+            if symbol not in fresh:
                 continue
             try:
                 self._process_symbol(symbol, params, settings)
@@ -256,6 +265,56 @@ class BotEngine:
         self.state.get_or_create_day_start_equity(mode, equity)
         self.state.prune_events()
 
+    # ------------------------------------------------------- startup checks
+    def _account_identity(self) -> str:
+        return (f"{self.config.exchange_id}:{self.config.market_type}:"
+                f"{'testnet' if self.config.use_testnet else 'mainnet'}")
+
+    def _check_account_identity(self) -> None:
+        """Live positions and daily/safety baselines belong to one exchange account.
+
+        Switching exchange, market type or testnet <-> mainnet with live positions
+        still open would make the bot manage positions that do not exist there,
+        so it refuses to start. With none open, the day's baseline and the
+        drawdown/streak tracking start over for the new account.
+        """
+        if self.executor.mode != "live":
+            return
+        identity, stored = self._account_identity(), self.state.get_state("live_account")
+        if stored == identity:
+            return
+        if stored is not None:
+            open_live = self.executor.open_positions()
+            if open_live:
+                message = (f"Canlı hesap değişti ({stored} -> {identity}) ama önceki hesapta "
+                           f"{len(open_live)} açık pozisyon kayıtlı. Önce eski ayarlarla başlatıp kapatın.")
+                self.state.log_event("CRITICAL", "lifecycle", message)
+                raise RuntimeError(message)
+            self.state.delete_day_start_equity("live")
+            self.state.reset_safety_tracking("live", None)
+            self.state.log_event("WARNING", "lifecycle", f"Canlı hesap değişti ({stored} -> {identity}); günlük "
+                                                         "zarar ve güvenlik takibi sıfırlandı")
+        self.state.set_state("live_account", identity)
+
+    def _warn_about_other_mode_positions(self) -> None:
+        other = "paper" if self.executor.mode == "live" else "live"
+        positions = self.state.get_open_positions(mode=other)
+        if positions:
+            symbols = ", ".join(sorted({p["symbol"] for p in positions}))
+            message = (f"{len(positions)} açık {other.upper()} pozisyon ({symbols}) bu modda yönetilmiyor: "
+                       f"stop/hedefleri çalışmaz. {other.upper()} moda dönüp kapatın.")
+            log.warning(message)
+            self.state.log_event("WARNING", "lifecycle", message, data={"mode": other,
+                                                                         "ids": [p["id"] for p in positions]})
+
+    def _resolve_pending_orders(self) -> None:
+        try:
+            self.executor.resolve_pending_orders()
+        except (ccxt.AuthenticationError, ccxt.PermissionDenied):
+            raise
+        except Exception as exc:
+            log.warning("Resolving unknown orders failed", extra={"error": type(exc).__name__})
+
     def _sync_exchange_stops(self) -> None:
         try:
             self.executor.sync_protective_stops()
@@ -283,6 +342,13 @@ class BotEngine:
         if len(df) < params.warmup:
             log.warning("Not enough closed candles", extra={"symbol": symbol, "have": len(df),
                                                             "need": params.warmup})
+            key = f"warmup_short:{symbol}:{self.config.timeframe}"
+            if self.state.get_state(key) != [len(df), params.warmup]:
+                self.state.set_state(key, [len(df), params.warmup])
+                self.state.log_event("WARNING", "decision",
+                                     f"{symbol}: borsa {len(df)} kapanmış mum verdi, stratejinin {params.warmup} "
+                                     "muma ihtiyacı var; sinyal üretilmiyor (periyotları düşürün veya daha "
+                                     "uzun geçmiş veren bir borsa kullanın)", symbol=symbol)
             return
 
         state_key = f"last_candle:{symbol}:{self.config.timeframe}"
@@ -316,13 +382,31 @@ class BotEngine:
                 self._close(pos, price, "trend_flip")
 
         if sig.is_entry:
-            self._try_entry(symbol, sig, price, settings)
+            age_ms = self._candle_age_ms(last_ts, tf_ms)
+            if age_ms is not None and age_ms > self._max_signal_age_ms(tf_ms):
+                # e.g. after downtime: this candle closed long ago, the setup is gone
+                log.info("Entry skipped: signal candle is stale", extra={"symbol": symbol,
+                                                                         "age_sec": round(age_ms / 1000)})
+                self.state.log_event("INFO", "decision", f"{sig.action} signal skipped: candle closed "
+                                                         f"{age_ms // 60000} min ago (stale)", symbol=symbol)
+            else:
+                self._try_entry(symbol, sig, price, settings)
 
         self.state.set_state(state_key, last_ts)
 
+    def _candle_age_ms(self, open_ts: int, tf_ms: int) -> Optional[int]:
+        clock = getattr(self.exchange, "milliseconds", None)
+        return None if clock is None else int(clock()) - (open_ts + tf_ms)
+
+    def _max_signal_age_ms(self, tf_ms: int) -> int:
+        return min(tf_ms, max(STALE_SIGNAL_MIN_SEC, 5 * self.config.poll_interval_sec) * 1000)
+
     def _update_trailing(self, pos: Dict[str, Any], candles, tf_ms: int, atr_value: float) -> None:
         opened_ms = _iso_to_ms(pos["opened_at"])
-        relevant = candles[candles["timestamp"] + tf_ms > opened_ms]
+        # Only candles from the entry on: the candle the entry happened in counts only
+        # when the entry was right at its open, so pre-entry highs/lows are not used.
+        grace_ms = max(60, 2 * self.config.poll_interval_sec) * 1000
+        relevant = candles[candles["timestamp"] >= opened_ms - grace_ms]
         if relevant.empty:
             return
         highest = max(float(pos["highest_price"]), float(relevant["high"].max()))
@@ -351,6 +435,8 @@ class BotEngine:
 
         if not settings.get("trading_enabled", True):
             return skip("trading disabled (kill switch)")
+        if self.executor.has_pending_entry(symbol):
+            return skip("an earlier entry order is still being looked up on the exchange", "WARNING")
         if settings.get("safety_halt_active", False):
             halt = self.state.get_state(f"safety_halt:{self.executor.mode}") or {}
             return skip(f"safety halt ({halt.get('reason') or 'set by user'})")
@@ -396,6 +482,9 @@ class BotEngine:
         try:
             self.executor.close_position(pos, price, reason)
         except ccxt.BaseError as exc:
+            # remembered, so exits that are not re-checked every loop (trend flip,
+            # manual) are retried on the next loop as well
+            self.state.set_state(f"pending_close:{pos['id']}", reason)
             log.error("Close failed; will retry next loop", extra={"position_id": pos["id"],
                                                                    "error": type(exc).__name__})
             self.state.log_event("ERROR", "error", f"Close failed for #{pos['id']}: {type(exc).__name__}",

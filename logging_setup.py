@@ -12,7 +12,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
-from typing import Iterable, Optional
+from typing import Iterable, List, Optional
 
 LOGGER_NAME = "tradingbot"
 
@@ -20,21 +20,59 @@ LOGGER_NAME = "tradingbot"
 _STD_ATTRS = set(vars(logging.LogRecord("", 0, "", 0, "", (), None)).keys()) | {"message", "asctime"}
 
 
+REDACTED = "***REDACTED***"
+
+# Secrets registered by setup_logging; also used by StateManager.log_event so the
+# event log the apps read is redacted the same way.
+_REGISTERED_SECRETS: List[str] = []
+
+
+def register_secrets(secrets: Iterable[str]) -> None:
+    for secret in secrets:
+        if secret and len(secret) >= 4 and secret not in _REGISTERED_SECRETS:
+            _REGISTERED_SECRETS.append(secret)
+
+
+def redact(text: str, secrets: Optional[Iterable[str]] = None) -> str:
+    """Replace every registered (or given) secret in ``text``."""
+    for secret in (_REGISTERED_SECRETS if secrets is None else secrets):
+        if secret and secret in text:
+            text = text.replace(secret, REDACTED)
+    return text
+
+
 class SecretRedactingFilter(logging.Filter):
+    """Redacts the message, ``extra=`` fields, tracebacks and stack info."""
+
     def __init__(self, secrets: Iterable[str]):
         super().__init__()
         self._secrets = [s for s in secrets if s and len(s) >= 4]
+
+    def _redact_value(self, value):
+        if isinstance(value, str):
+            return redact(value, self._secrets)
+        if isinstance(value, (int, float, bool)) or value is None:
+            return value
+        text = repr(value)
+        return redact(text, self._secrets) if any(s in text for s in self._secrets) else value
 
     def filter(self, record: logging.LogRecord) -> bool:
         if not self._secrets:
             return True
         msg = record.getMessage()
-        redacted = msg
-        for secret in self._secrets:
-            redacted = redacted.replace(secret, "***REDACTED***")
+        redacted = redact(msg, self._secrets)
         if redacted != msg:
             record.msg = redacted
             record.args = ()
+        for key, value in list(record.__dict__.items()):
+            if key not in _STD_ATTRS and not key.startswith("_"):
+                setattr(record, key, self._redact_value(value))
+        if record.exc_info and not record.exc_text:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+        if record.exc_text:
+            record.exc_text = redact(record.exc_text, self._secrets)
+        if record.stack_info:
+            record.stack_info = redact(record.stack_info, self._secrets)
         return True
 
 
@@ -49,8 +87,8 @@ class JsonFormatter(logging.Formatter):
         for key, value in record.__dict__.items():
             if key not in _STD_ATTRS and not key.startswith("_"):
                 payload[key] = value
-        if record.exc_info:
-            payload["exc"] = self.formatException(record.exc_info)
+        if record.exc_text or record.exc_info:
+            payload["exc"] = record.exc_text or self.formatException(record.exc_info)
         return json.dumps(payload, default=str, ensure_ascii=False)
 
 
@@ -83,7 +121,9 @@ def setup_logging(
         logger.removeHandler(h)
         h.close()
 
-    redactor = SecretRedactingFilter(secrets or [])
+    secrets = list(secrets or [])
+    register_secrets(secrets)
+    redactor = SecretRedactingFilter(secrets)
 
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(ConsoleFormatter())

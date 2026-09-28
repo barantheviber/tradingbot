@@ -25,15 +25,27 @@ except ImportError:  # pragma: no cover
 LIVE_CONFIRM_PHRASE = "I_UNDERSTAND_THE_RISKS"
 
 
+class ConfigError(ValueError):
+    """An environment variable has a value that cannot be parsed."""
+
+
+_TRUE = {"1", "true", "yes", "y", "on", "evet"}
+_FALSE = {"0", "false", "no", "n", "off", "hayir", "hayır"}
+
+
 def _env_bool(name: str, default: bool) -> bool:
+    """Strict: an unrecognised value is an error, never silently False.
+
+    (``PAPER_TRADING=ture`` must not select live trading.)"""
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
         return default
-    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
-class ConfigError(ValueError):
-    """An environment variable has a value that cannot be parsed."""
+    value = raw.strip().lower()
+    if value in _TRUE:
+        return True
+    if value in _FALSE:
+        return False
+    raise ConfigError(f"{name} true ya da false olmalı (şu an: {raw!r}).")
 
 
 def _env_int(name: str, default: int) -> int:

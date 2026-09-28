@@ -49,6 +49,41 @@ NON_RETRYABLE_ERRORS: Tuple[Type[Exception], ...] = (
 ORDER_SAFE_RETRY_ERRORS: Tuple[Type[Exception], ...] = (ccxt.RateLimitExceeded, ccxt.DDoSProtection)
 
 CLOCK_RESYNC_SEC = 3600
+MAX_OHLCV_PAGES = 10
+
+class AmbiguousOrderError(ccxt.NetworkError):
+    """An order request failed in a way that does not tell whether the exchange
+    accepted it (e.g. a timeout after sending), and a lookup by client order id
+    could not settle it either. Never re-send such an order blindly."""
+
+    def __init__(self, message: str, symbol: str, client_order_id: str, since_ms: int):
+        super().__init__(message)
+        self.symbol = symbol
+        self.client_order_id = client_order_id
+        self.since_ms = since_ms
+
+
+class OrderNotPlaced(ccxt.ExchangeError):
+    """A failed order request was confirmed absent on the exchange: safe to retry."""
+
+
+ORDER_LOOKUP_ATTEMPTS = 3
+ORDER_LOOKUP_DELAY_SEC = 2.0
+
+
+def make_client_order_id(exchange_id: str, kind: str = "o") -> str:
+    """A client order id every supported exchange accepts.
+
+    Letters and digits only (OKX rejects '-'), short enough for Kraken's
+    18-character free text, and 't-' prefixed for Gate (which requires it).
+    """
+    token = uuid.uuid4().hex
+    if exchange_id.startswith("gate"):
+        return f"t-tb{kind}{token[:20]}"
+    if exchange_id.startswith("kraken"):
+        return f"tb{kind}{token[:15]}"
+    return f"tb{kind}{token[:24]}"
+
 
 OHLCV_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
 
@@ -206,9 +241,26 @@ class ExchangeClient:
         rows = self.call("fetch_ohlcv", symbol, timeframe, since, limit)
         return ohlcv_to_frame(rows)
 
+    def fetch_ohlcv_history(self, symbol: str, timeframe: str, limit: int) -> pd.DataFrame:
+        """The latest ``limit`` candles, paging backwards when the exchange caps a
+        single request (e.g. OKX 300, Binance 1000) below what the strategy needs."""
+        df = self.fetch_ohlcv(symbol, timeframe, limit)
+        tf_ms = self.timeframe_ms(timeframe)
+        pages = 0
+        while 0 < len(df) < limit and pages < MAX_OHLCV_PAGES:
+            chunk = min(limit - len(df), len(df))
+            oldest = int(df["timestamp"].iloc[0])
+            older = self.fetch_ohlcv(symbol, timeframe, chunk, since=oldest - chunk * tf_ms)
+            older = older[older["timestamp"] < oldest] if not older.empty else older
+            if older.empty:
+                break  # no more history on the exchange
+            df = pd.concat([older, df]).drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
+            pages += 1
+        return df.tail(limit).reset_index(drop=True)
+
     def fetch_closed_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> pd.DataFrame:
         """OHLCV with the still-forming candle removed (no look-ahead)."""
-        df = self.fetch_ohlcv(symbol, timeframe, limit)
+        df = self.fetch_ohlcv_history(symbol, timeframe, limit)
         return drop_unclosed_candles(df, self.timeframe_ms(timeframe), self.milliseconds())
 
     def fetch_ticker(self, symbol: str) -> Dict[str, Any]:
@@ -235,12 +287,68 @@ class ExchangeClient:
     ) -> Dict[str, Any]:
         self._ensure_markets()
         params = dict(params or {})
-        params.setdefault("clientOrderId", f"tb-{uuid.uuid4().hex[:20]}")
+        params.setdefault("clientOrderId", make_client_order_id(self.exchange_id, "o"))
         amount_p = float(self.exchange.amount_to_precision(symbol, amount))
         log.info("Placing market order", extra={"symbol": symbol, "side": side, "amount": amount_p,
                                                 "client_order_id": params["clientOrderId"]})
-        return self.call("create_order", symbol, "market", side, amount_p, None, params,
-                         retry_on=ORDER_SAFE_RETRY_ERRORS)
+        return self._place_order(symbol, params["clientOrderId"], "create_order", symbol, "market", side, amount_p,
+                                 None, params)
+
+    def _place_order(self, symbol: str, client_order_id: str, method: str, *args: Any) -> Dict[str, Any]:
+        """Send an order. Rate-limit rejections are retried (the order was not
+        taken); any other network error is settled by looking the order up by
+        its client order id instead of re-sending it."""
+        since = self.milliseconds()
+        try:
+            return self.call(method, *args, retry_on=ORDER_SAFE_RETRY_ERRORS)
+        except ORDER_SAFE_RETRY_ERRORS:
+            raise
+        except ccxt.NetworkError as exc:
+            log.error("Order outcome unknown; looking it up by client order id",
+                      extra={"symbol": symbol, "client_order_id": client_order_id, "error": type(exc).__name__})
+            return self.resolve_order(symbol, client_order_id, since, exc)
+
+    def resolve_order(self, symbol: str, client_order_id: str, since_ms: int,
+                      cause: Optional[Exception] = None) -> Dict[str, Any]:
+        """Return the order the exchange has for ``client_order_id``; raise
+        ``OrderNotPlaced`` if it is confirmed absent, or ``AmbiguousOrderError``
+        if the exchange cannot be asked."""
+        for attempt in range(ORDER_LOOKUP_ATTEMPTS):
+            if attempt:
+                self._sleep(ORDER_LOOKUP_DELAY_SEC)  # the exchange may list a new order with a delay
+            try:
+                order = self.find_order(symbol, client_order_id, since_ms)
+            except ccxt.NotSupported:
+                break
+            except ccxt.NetworkError:
+                continue
+            if order is not None:
+                log.warning("Order found on the exchange after an unclear response",
+                            extra={"symbol": symbol, "client_order_id": client_order_id, "order_id": order.get("id")})
+                return order
+            if attempt == ORDER_LOOKUP_ATTEMPTS - 1:
+                raise OrderNotPlaced(f"order {client_order_id} for {symbol} was not placed") from cause
+        raise AmbiguousOrderError(f"order {client_order_id} for {symbol}: outcome unknown "
+                                  f"({type(cause).__name__ if cause else 'lookup failed'})",
+                                  symbol, client_order_id, since_ms)
+
+    def find_order(self, symbol: str, client_order_id: str, since_ms: int) -> Optional[Dict[str, Any]]:
+        """Search recent orders for ``client_order_id``. None = not there.
+        Raises ``ccxt.NotSupported`` when the exchange offers no order listing."""
+        has = getattr(self.exchange, "has", None) or {}
+        searched = False
+        for method, capability in (("fetch_open_orders", "fetchOpenOrders"),
+                                   ("fetch_closed_orders", "fetchClosedOrders"),
+                                   ("fetch_orders", "fetchOrders")):
+            if not has.get(capability):
+                continue
+            searched = True
+            for order in self.call(method, symbol, max(0, since_ms - 60_000)) or []:
+                if order.get("clientOrderId") == client_order_id:
+                    return order
+        if not searched:
+            raise ccxt.NotSupported(f"{self.exchange_id} cannot list orders")
+        return None
 
     def cancel_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
         return self.call("cancel_order", order_id, symbol)
@@ -259,7 +367,7 @@ class ExchangeClient:
         """
         self._ensure_markets()
         params = dict(params or {})
-        params.setdefault("clientOrderId", f"tbs-{uuid.uuid4().hex[:19]}")
+        params.setdefault("clientOrderId", make_client_order_id(self.exchange_id, "s"))
         amount_p = float(self.exchange.amount_to_precision(symbol, amount))
         price_p = float(self.exchange.price_to_precision(symbol, stop_price))
         has = getattr(self.exchange, "has", None) or {}
@@ -267,14 +375,14 @@ class ExchangeClient:
                                                        "stop_price": price_p,
                                                        "client_order_id": params["clientOrderId"]})
         if has.get("createStopLossOrder"):
-            return self.call("create_stop_loss_order", symbol, "market", side, amount_p, None, price_p, params,
-                             retry_on=ORDER_SAFE_RETRY_ERRORS)
+            return self._place_order(symbol, params["clientOrderId"], "create_stop_loss_order", symbol, "market",
+                                     side, amount_p, None, price_p, params)
         if has.get("createStopMarketOrder"):
-            return self.call("create_stop_market_order", symbol, side, amount_p, price_p, params,
-                             retry_on=ORDER_SAFE_RETRY_ERRORS)
+            return self._place_order(symbol, params["clientOrderId"], "create_stop_market_order", symbol, side,
+                                     amount_p, price_p, params)
         if has.get("createStopOrder"):
-            return self.call("create_stop_order", symbol, "market", side, amount_p, None, price_p, params,
-                             retry_on=ORDER_SAFE_RETRY_ERRORS)
+            return self._place_order(symbol, params["clientOrderId"], "create_stop_order", symbol, "market", side,
+                                     amount_p, None, price_p, params)
         raise ccxt.NotSupported(f"{self.exchange_id} has no stop order type in ccxt")
 
     # ------------------------------------------------------------ precision
@@ -284,6 +392,15 @@ class ExchangeClient:
             return float(self.exchange.amount_to_precision(symbol, amount))
         except ccxt.InvalidOrder:  # below minimum precision -> 0
             return 0.0
+
+    def contract_size(self, symbol: str) -> float:
+        """Base units per contract (1 for spot). ccxt order amounts on futures and
+        swaps are in contracts, which differ from base units on e.g. OKX."""
+        self._ensure_markets()
+        market = self.exchange.market(symbol)
+        if market.get("contract"):
+            return float(market.get("contractSize") or 1.0)
+        return 1.0
 
     def market_limits(self, symbol: str) -> Dict[str, Optional[float]]:
         self._ensure_markets()

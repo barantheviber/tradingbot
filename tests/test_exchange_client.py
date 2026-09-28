@@ -1,7 +1,8 @@
 import ccxt
 import pytest
 
-from exchange_client import ExchangeClient, backoff_delay
+from exchange_client import (AmbiguousOrderError, ExchangeClient, OrderNotPlaced, backoff_delay,
+                             make_client_order_id)
 
 
 class FakeExchange:
@@ -62,7 +63,8 @@ def test_gives_up_after_max_retries():
 def test_order_not_blindly_retried_on_timeout():
     client, fake, _ = _client([ccxt.RequestTimeout("t")])
     client._markets_loaded = True
-    with pytest.raises(ccxt.RequestTimeout):
+    # the fake cannot list orders, so the outcome stays unknown and is never re-sent
+    with pytest.raises(AmbiguousOrderError):
         client.create_market_order("BTC/USDT", "buy", 1.0)
     assert fake.calls == 1
 
@@ -155,7 +157,7 @@ def test_create_stop_order_prefers_stop_loss_type_and_rounds_price():
     client.create_stop_order("BTC/USDT", "sell", 0.5, 95.123, {"reduceOnly": True})
     kind, args = fake.calls[0]
     assert kind == "stop_loss" and args[:6] == ("BTC/USDT", "market", "sell", 0.5, None, 95.12)
-    assert args[6]["reduceOnly"] is True and args[6]["clientOrderId"].startswith("tbs-")
+    assert args[6]["reduceOnly"] is True and args[6]["clientOrderId"].startswith("tbs")
 
 
 def test_create_stop_order_falls_back_and_reports_unsupported():
@@ -165,3 +167,64 @@ def test_create_stop_order_falls_back_and_reports_unsupported():
     assert not none.supports_stop_orders()
     with pytest.raises(ccxt.NotSupported):
         none.create_stop_order("BTC/USDT", "sell", 1, 90)
+
+
+class LookupExchange:
+    """create_order times out; the order may or may not exist afterwards."""
+
+    has = {"fetchOpenOrders": True, "fetchClosedOrders": True}
+
+    def __init__(self, placed):
+        self.placed = placed
+        self.sent = []
+
+    def load_markets(self, reload=False):
+        return {}
+
+    def amount_to_precision(self, symbol, amount):
+        return str(amount)
+
+    def create_order(self, symbol, type_, side, amount, price, params):
+        self.sent.append(params["clientOrderId"])
+        raise ccxt.RequestTimeout("read timed out")
+
+    def fetch_open_orders(self, symbol, since):
+        return []
+
+    def fetch_closed_orders(self, symbol, since):
+        if self.placed:
+            return [{"id": "77", "clientOrderId": cid, "filled": 1.0, "average": 100.0, "status": "closed"}
+                    for cid in self.sent]
+        return []
+
+
+def test_timed_out_order_found_by_client_id_is_returned_not_resent():
+    fake = LookupExchange(placed=True)
+    client = ExchangeClient("binance", exchange=fake, sleep_fn=lambda s: None)
+    client._markets_loaded = True
+    order = client.create_market_order("BTC/USDT", "buy", 1.0)
+    assert order["id"] == "77" and len(fake.sent) == 1
+
+
+def test_timed_out_order_confirmed_absent_raises_order_not_placed():
+    fake = LookupExchange(placed=False)
+    client = ExchangeClient("binance", exchange=fake, sleep_fn=lambda s: None)
+    client._markets_loaded = True
+    with pytest.raises(OrderNotPlaced):
+        client.create_market_order("BTC/USDT", "buy", 1.0)
+    assert len(fake.sent) == 1
+
+
+@pytest.mark.parametrize("exchange_id,pattern,max_len", [
+    ("binance", r"^[A-Za-z0-9]+$", 36),
+    ("okx", r"^[A-Za-z0-9]+$", 32),
+    ("bybit", r"^[A-Za-z0-9]+$", 36),
+    ("gateio", r"^t-[A-Za-z0-9]+$", 30),
+    ("kraken", r"^[A-Za-z0-9]+$", 18),
+])
+def test_client_order_ids_fit_each_exchange(exchange_id, pattern, max_len):
+    import re
+
+    cid = make_client_order_id(exchange_id, "o")
+    assert re.match(pattern, cid) and len(cid) <= max_len
+    assert cid != make_client_order_id(exchange_id, "o")
