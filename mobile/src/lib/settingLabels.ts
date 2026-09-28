@@ -34,6 +34,9 @@ const LABELS: Record<string, string> = {
   max_open_positions: 'En fazla açık pozisyon',
   max_symbol_exposure_pct: 'Sembol başına en fazla büyüklük (%)',
   round_trip_cost_pct: 'Hesaba katılan işlem maliyeti (%)',
+  max_drawdown_halt_pct: 'Otomatik fren: zirveden en fazla düşüş (%)',
+  max_losing_streak_halt: 'Otomatik fren: art arda zarar sayısı',
+  safety_halt_active: 'Otomatik fren devrede',
   exchange_stop_enabled: 'Borsada stop emri (canlı mod)',
 };
 

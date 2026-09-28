@@ -39,6 +39,7 @@ def client():
 
 @pytest.mark.parametrize("interface,path,pick", [
     ("Status", "/api/status", lambda b: b),
+    ("SafetyHalt", "/api/status", lambda b: b["safety_halt"]),
     ("Position", "/api/positions", lambda b: b["positions"][0]),
     ("Trade", "/api/trades", lambda b: b["trades"][0]),
     ("Pnl", "/api/pnl", lambda b: b),

@@ -88,7 +88,37 @@ class BotReadModel:
             "open_positions": len(open_positions),
             "max_open_positions": self.state.get_setting("max_open_positions"),
             "pending_commands": len(self.state.get_pending_commands()),
+            "safety_halt": self._safety_halt(),
             "server_time": time.time(),
+        }
+
+    def _safety_halt(self) -> Dict[str, Any]:
+        """The automatic brake (bot_engine._check_safety_halt) in a form the apps can explain."""
+        s = self.state.get_safety_status(self.mode)
+        halt = self.state.get_state(f"safety_halt:{self.mode}") or {}
+        reason = s.get("reason")
+        kind = None
+        if s["active"]:
+            # the engine writes "drawdown ..." or "N losing trades in a row ..."; no reason = set by hand
+            if not reason:
+                kind = "manual"
+            elif reason.startswith("drawdown"):
+                kind = "drawdown"
+            elif "losing" in reason:
+                kind = "losing_streak"
+            else:
+                kind = "other"
+        return {
+            "active": bool(s["active"]),
+            "kind": kind,
+            "reason": reason,
+            "since": _finite(s.get("since")),
+            "drawdown_pct": _finite(halt.get("drawdown_pct")),
+            "losing_streak_at_halt": halt.get("losing_streak"),
+            "peak_equity": _finite(s.get("peak_equity")),
+            "losing_streak": int(s.get("losing_streak") or 0),
+            "drawdown_limit_pct": float(self.state.get_setting("max_drawdown_halt_pct", 0) or 0),
+            "losing_streak_limit": int(self.state.get_setting("max_losing_streak_halt", 0) or 0),
         }
 
     # ----------------------------------------------------------- positions

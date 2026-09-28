@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ConnectionConfig, LocalBotState, LocalSetup, LogEvent, Position, Status, WsState } from "../shared/types";
 import { api } from "./api";
 import BotControl from "./components/BotControl";
+import SafetyHaltBanner from "./components/SafetyHaltBanner";
 import StatusBar from "./components/StatusBar";
 import Connection from "./views/Connection";
 import Logs from "./views/Logs";
@@ -121,6 +122,7 @@ export default function App() {
     <div className="app">
       <StatusBar status={status} wsState={wsState} error={local.managed && !botUp ? null : error} />
       {local.managed && <BotControl state={local} positions={positions} status={status} onChanged={refresh} />}
+      <SafetyHaltBanner status={status} onChanged={refresh} />
       <nav className="tabs">
         {tabs.map((t) => (
           <button key={t.id} className={t.id === tab ? "tab active" : "tab"} onClick={() => setTab(t.id)}>

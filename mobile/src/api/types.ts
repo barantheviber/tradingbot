@@ -24,8 +24,28 @@ export interface Status {
   open_positions: number;
   max_open_positions: number | null;
   pending_commands: number;
+  safety_halt: SafetyHalt;
   server_time: number;
   api_version: string;
+}
+
+/** The automatic brake: no new entries after a deep drawdown or a long losing streak. */
+export interface SafetyHalt {
+  active: boolean;
+  /** why it is on; null while off */
+  kind: 'drawdown' | 'losing_streak' | 'manual' | 'other' | null;
+  /** the bot's own (English) reason text */
+  reason: string | null;
+  /** unix seconds */
+  since: number | null;
+  /** drawdown from peak when it tripped, % */
+  drawdown_pct: number | null;
+  losing_streak_at_halt: number | null;
+  peak_equity: number | null;
+  losing_streak: number;
+  /** current limits; 0 = that trigger is off */
+  drawdown_limit_pct: number;
+  losing_streak_limit: number;
 }
 
 export interface Position {
