@@ -30,6 +30,11 @@ export default function StatusBar({ status, wsState, error }: Props) {
               Yeni girişler kapalı
             </span>
           )}
+          {status.safety_halt?.active && (
+            <span className="badge badge-bad" title="Otomatik fren: yeni pozisyon açılmıyor">
+              Otomatik fren
+            </span>
+          )}
           {status.entries_halted_by_daily_limit && (
             <span
               className="badge badge-bad"

@@ -36,6 +36,8 @@ BOUNDS: Dict[str, _Bounds] = {
     "daily_loss_limit_pct": (0, 100, True),
     "max_open_positions": (0, 100, True),
     "max_symbol_exposure_pct": (0, 100, False),
+    "max_drawdown_halt_pct": (0, 100, True),
+    "max_losing_streak_halt": (0, 100, True),
 }
 
 # (smaller key, larger key): the first must stay strictly below the second.
