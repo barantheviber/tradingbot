@@ -99,6 +99,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Restart rules (JVM test)
+        # The phone resumes the bot after a restart only if it was running, never after Durdur.
+        run: gradle -p mobile/plugins/bot-runtime/jvm-test test --no-daemon
       # Chaquopy compiles the bundled Python with the same version on the build machine.
       - uses: actions/setup-python@v5
         with:

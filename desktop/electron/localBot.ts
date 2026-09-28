@@ -10,13 +10,17 @@ import path from "node:path";
 import type { LocalBotPhase, LocalBotState, LocalSetup } from "../shared/localBot";
 import { validateSetup } from "../shared/localBot";
 import { getToken, saveConfig } from "./configStore";
-import { buildEnvFile, childEnv, exitReason, LOCAL_API_PORT, restartDelayMs } from "./localBotEnv";
-
-interface Stored {
-  setup?: LocalSetup;
-  /** the bot was running when the app last closed: start it again on launch */
-  autoStart?: boolean;
-}
+import {
+  afterStart,
+  afterStop,
+  buildEnvFile,
+  childEnv,
+  exitReason,
+  LOCAL_API_PORT,
+  restartDelayMs,
+  shouldResume,
+  type Stored,
+} from "./localBotEnv";
 
 const STOP_TIMEOUT_MS = 60_000;
 const STABLE_AFTER_MS = 5 * 60_000;
@@ -100,8 +104,7 @@ export class LocalBot {
 
   /** Called on launch: starts the bot if it was running when the app closed. */
   async resume(): Promise<void> {
-    const stored = readStored();
-    if (stored.setup && stored.autoStart) await this.start();
+    if (shouldResume(readStored())) await this.start();
     else this.emit();
   }
 
@@ -109,7 +112,7 @@ export class LocalBot {
     const stored = readStored();
     if (!stored.setup) throw new Error("Önce kurulumu tamamlayın.");
     this.wantRunning = true;
-    writeStored({ ...stored, autoStart: true });
+    writeStored(afterStart(stored));
     this.crashes = 0;
     this.spawnChild();
   }
@@ -117,7 +120,7 @@ export class LocalBot {
   /** remember=false keeps autoStart as it is (used for restarts and app shutdown). */
   async stop({ remember = true }: { remember?: boolean } = {}): Promise<void> {
     this.wantRunning = false;
-    if (remember) writeStored({ ...readStored(), autoStart: false });
+    writeStored(afterStop(readStored(), remember));
     if (this.restartTimer) {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;

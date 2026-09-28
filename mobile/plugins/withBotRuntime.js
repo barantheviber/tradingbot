@@ -172,8 +172,8 @@ function withBotFiles(config) {
 
       const javaDir = path.join(main, 'java', PACKAGE_PATH);
       fs.mkdirSync(javaDir, { recursive: true });
-      for (const file of ['BotService.kt', 'BootReceiver.kt']) {
-        fs.copyFileSync(path.join(__dirname, 'bot-runtime', file), path.join(javaDir, file));
+      for (const file of ['BotService.kt', 'BootReceiver.kt', 'shared/RunMemory.kt']) {
+        fs.copyFileSync(path.join(__dirname, 'bot-runtime', file), path.join(javaDir, path.basename(file)));
       }
 
       const xmlDir = path.join(main, 'res', 'xml');

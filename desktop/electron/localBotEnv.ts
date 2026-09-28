@@ -67,3 +67,28 @@ export function exitReason(stderrTail: string): string | null {
 export function restartDelayMs(attempt: number): number {
   return Math.min(60_000, 5_000 * 2 ** Math.max(0, attempt - 1));
 }
+
+/**
+ * What the app remembers between launches (userData/local-bot.json). The bot starts by itself on
+ * launch only if it was running when the app or the computer last went down: a bot the user
+ * stopped with Durdur stays stopped. The user moves between the PC and the phone by pressing
+ * Durdur on one first, and two bots must never trade the same account.
+ */
+export interface Stored {
+  setup?: LocalSetup;
+  /** the bot was running when the app last closed: start it again on launch */
+  autoStart?: boolean;
+}
+
+export function afterStart(s: Stored): Stored {
+  return { ...s, autoStart: true };
+}
+
+/** byUser=false (a restart, or the app shutting down) keeps autoStart as it is. */
+export function afterStop(s: Stored, byUser: boolean): Stored {
+  return byUser ? { ...s, autoStart: false } : s;
+}
+
+export function shouldResume(s: Stored): boolean {
+  return Boolean(s.setup && s.autoStart);
+}
