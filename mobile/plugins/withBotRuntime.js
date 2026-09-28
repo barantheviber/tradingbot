@@ -10,7 +10,7 @@
 // - Release builds are signed with the keystore named by ANDROID_KEYSTORE_* environment
 //   variables when they are set (CI release builds), otherwise with the debug key.
 // - ANDROID_ABIS picks the CPU types to build for (comma separated). Phones are arm64-v8a;
-//   x86_64 is for emulators. CI builds arm64-v8a only, which roughly halves the APK.
+//   x86_64 is for emulators. CI builds arm64-v8a only (151 MB -> 101 MB APK).
 const fs = require('fs');
 const path = require('path');
 const {

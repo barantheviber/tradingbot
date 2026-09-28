@@ -120,7 +120,7 @@ jobs:
           APP_VERSION: ${{ env.VERSION }}
           # grows with every run, so a newer APK always installs over an older one
           APP_VERSION_CODE: ${{ github.run_number }}
-          # phones only (no emulator build), which keeps the APK about half the size
+          # phones only (no emulator build), about a third smaller (151 MB -> 101 MB)
           ANDROID_ABIS: arm64-v8a
         run: |
           npm ci
