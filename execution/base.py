@@ -97,6 +97,14 @@ class BaseExecutionClient(ABC):
         return self.state.get_state(f"pending_close:{position['id']}")
 
     # ------------------------------------------------------------- shared
+    def _contract_size(self, symbol: str) -> float:
+        """Base units per exchange amount unit (1 on spot; e.g. 0.01 BTC per
+        contract on OKX swaps). Exchange precision and minimums are stated in
+        these units, while positions are kept in base units."""
+        getter = getattr(self.exchange, "contract_size", None)
+        size = float(getter(symbol)) if getter else 1.0
+        return size if size > 0 else 1.0
+
     def open_positions(self) -> List[Dict[str, Any]]:
         return self.state.get_open_positions(mode=self.mode)
 
