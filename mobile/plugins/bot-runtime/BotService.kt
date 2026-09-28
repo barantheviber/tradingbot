@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -29,6 +30,24 @@ import java.util.concurrent.Executors
  * (stopped | starting | running | stopping | error), message, and pid (the process the service
  * runs in, so a phase left over from before a restart is not shown as running).
  */
+/** RunMemory (shared/RunMemory.kt) on the service's SharedPreferences. */
+fun SharedPreferences.runMemory() = RunMemory(object : RunMemory.Store {
+  override fun getBoolean(key: String) = this@runMemory.getBoolean(key, false)
+  override fun getString(key: String) = this@runMemory.getString(key, null)
+  override fun put(values: Map<String, Any?>) {
+    val e = edit()
+    for ((key, value) in values) {
+      when (value) {
+        is Boolean -> e.putBoolean(key, value)
+        is String -> e.putString(key, value)
+        null -> e.remove(key)
+        else -> error("unsupported value for $key")
+      }
+    }
+    e.apply()
+  }
+})
+
 class BotService : Service() {
   companion object {
     const val PREFS = "tradingbot_runtime"
@@ -44,12 +63,13 @@ class BotService : Service() {
   @Volatile private var active = false
 
   private val prefs by lazy { getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+  private val memory by lazy { prefs.runMemory() }
 
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_STOP) {
-      prefs.edit().putBoolean("wanted", false).apply()
+      memory.stoppedByUser()
       setState("stopping", null)
       worker.execute {
         stopRuntime()
@@ -58,13 +78,16 @@ class BotService : Service() {
       }
       return START_NOT_STICKY
     }
-    // A null intent means Android restarted the service after killing the process.
-    val config = intent?.getStringExtra("config") ?: prefs.getString("config", null)
-    if (config == null || (intent == null && !prefs.getBoolean("wanted", false))) {
+    // No config in the intent: Android restarted the service after killing the process (null
+    // intent), or BootReceiver started it after a phone restart. Either way it continues only a
+    // bot that was running and not stopped by the user.
+    val config = memory.configForStart(intent?.getStringExtra("config"))
+    if (config == null) {
       finish()
       return START_NOT_STICKY
     }
-    prefs.edit().putString("config", config).putBoolean("wanted", true).putInt("pid", Process.myPid()).apply()
+    memory.started(config)
+    prefs.edit().putInt("pid", Process.myPid()).apply()
     goForeground()
     if (!active) {
       active = true
@@ -94,7 +117,7 @@ class BotService : Service() {
       setState("running", null)
     } catch (e: Throwable) {
       active = false
-      prefs.edit().putBoolean("wanted", false).apply()
+      memory.ended()
       setState("error", readable(e))
       finish()
       return
@@ -114,7 +137,7 @@ class BotService : Service() {
       }
       if (status != null && !status.optBoolean("running", false)) {
         active = false
-        prefs.edit().putBoolean("wanted", false).apply()
+        memory.ended()
         val error = if (status.isNull("error")) null else status.optString("error")
         setState(if (error != null) "error" else "stopped", error)
         finish()

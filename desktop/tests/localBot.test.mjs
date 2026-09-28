@@ -4,7 +4,9 @@ import { createRequire } from "node:module";
 import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
-const { buildEnvFile, childEnv, exitReason, restartDelayMs } = require("../dist-electron/electron/localBotEnv.js");
+const { afterStart, afterStop, buildEnvFile, childEnv, exitReason, restartDelayMs, shouldResume } = require(
+  "../dist-electron/electron/localBotEnv.js",
+);
 const { DEFAULT_SETUP, durationText, nextCandleClose, parseSymbols, validateSetup } = require("../dist-electron/shared/localBot.js");
 
 test("the .env is paper only and never carries keys, the token or a live switch", () => {
@@ -60,4 +62,16 @@ test("the next candle close follows the UTC grid the exchanges use", () => {
   assert.equal(durationText(135 * 60_000), "2 sa 15 dk");
   assert.equal(durationText(10_000), "1 dk");
   assert.equal(durationText(4 * 3_600_000), "4 sa");
+});
+
+test("after a restart the bot comes back only if it was running, never after Durdur", () => {
+  const set = { setup: DEFAULT_SETUP };
+  assert.equal(shouldResume(set), false, "set up but never started");
+  const running = afterStart(set);
+  assert.equal(shouldResume(running), true, "running when the PC went down (no clean quit)");
+  assert.equal(shouldResume(afterStop(running, false)), true, "running when the app quit");
+  const stopped = afterStop(running, true);
+  assert.equal(shouldResume(stopped), false, "stopped with Durdur, e.g. before moving to the phone");
+  assert.equal(shouldResume(afterStop(stopped, false)), false, "and quitting afterwards keeps it stopped");
+  assert.equal(shouldResume({ autoStart: true }), false, "no setup");
 });

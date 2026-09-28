@@ -13,8 +13,9 @@ import androidx.core.content.ContextCompat
 class BootReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
-    val prefs = context.getSharedPreferences(BotService.PREFS, Context.MODE_PRIVATE)
-    if (!prefs.getBoolean("wanted", false) || prefs.getString("config", null) == null) return
+    // Only a bot that was running when the phone went down (RunMemory); a stopped one stays stopped.
+    val memory = context.getSharedPreferences(BotService.PREFS, Context.MODE_PRIVATE).runMemory()
+    if (memory.configToResume() == null) return
     try {
       ContextCompat.startForegroundService(
         context, Intent(context, BotService::class.java).setAction(BotService.ACTION_START)

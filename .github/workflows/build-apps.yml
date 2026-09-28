@@ -99,6 +99,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Restart rules (JVM test)
+        # The phone resumes the bot after a restart only if it was running, never after Durdur.
+        run: gradle -p mobile/plugins/bot-runtime/jvm-test test --no-daemon
       # Chaquopy compiles the bundled Python with the same version on the build machine.
       - uses: actions/setup-python@v5
         with:
@@ -114,7 +120,7 @@ jobs:
           APP_VERSION: ${{ env.VERSION }}
           # grows with every run, so a newer APK always installs over an older one
           APP_VERSION_CODE: ${{ github.run_number }}
-          # phones only (no emulator build), which keeps the APK about half the size
+          # phones only (no emulator build), about a third smaller (151 MB -> 101 MB)
           ANDROID_ABIS: arm64-v8a
         run: |
           npm ci
