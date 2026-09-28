@@ -375,6 +375,10 @@ class StateManager:
                                      (date, mode)).fetchone()
         return float(row["start_equity"])
 
+    def shift_day_start_equity(self, mode: str, delta: float, date: Optional[str] = None) -> None:
+        self._execute("UPDATE daily_stats SET start_equity = start_equity + ? WHERE date = ? AND mode = ?",
+                      (delta, date or utc_today(), mode))
+
     def delete_day_start_equity(self, mode: str, date: Optional[str] = None) -> None:
         self._execute("DELETE FROM daily_stats WHERE date = ? AND mode = ?", (date or utc_today(), mode))
 

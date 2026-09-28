@@ -92,6 +92,7 @@ class BotEngine:
         self.state.log_event("INFO", "lifecycle", f"Bot starting in {self.executor.mode.upper()} mode",
                              data={"symbols": self.config.symbols, "timeframe": self.config.timeframe})
         self._check_account_identity()
+        self._apply_paper_balance_change()
         self._warn_about_other_mode_positions()
         self.executor.restore_open_positions()  # from SQLite; works even if the exchange is down
         while True:
@@ -295,6 +296,27 @@ class BotEngine:
             self.state.log_event("WARNING", "lifecycle", f"Canlı hesap değişti ({stored} -> {identity}); günlük "
                                                          "zarar ve güvenlik takibi sıfırlandı")
         self.state.set_state("live_account", identity)
+
+    def _apply_paper_balance_change(self) -> None:
+        """A changed PAPER_STARTING_BALANCE is a deposit/withdrawal, not a profit or
+        loss: shift today's baseline and the safety peak by the same amount so the
+        daily loss limit and the safety halt are not tripped (or masked) by it."""
+        if self.executor.mode != "paper":
+            return
+        current = float(getattr(self.executor, "starting_balance", 0.0) or 0.0)
+        stored = self.state.get_state("paper_starting_balance")
+        self.state.set_state("paper_starting_balance", current)
+        if stored is None or abs(float(stored) - current) < 1e-9:
+            return
+        delta = current - float(stored)
+        self.state.shift_day_start_equity("paper", delta)
+        peak = self.state.get_state("safety_peak_equity:paper")
+        if peak is not None:
+            self.state.set_state("safety_peak_equity:paper", float(peak) + delta)
+        message = (f"Paper başlangıç bakiyesi {float(stored):,.2f} -> {current:,.2f} değişti; günlük zarar ve "
+                   "güvenlik takibi bu farkı kâr/zarar saymıyor")
+        log.info(message)
+        self.state.log_event("INFO", "lifecycle", message, data={"delta": delta})
 
     def _warn_about_other_mode_positions(self) -> None:
         other = "paper" if self.executor.mode == "live" else "live"

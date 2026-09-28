@@ -326,3 +326,24 @@ def test_open_positions_of_the_other_mode_are_warned_about(state):
     engine = _paper_engine(state, FakeMarket(generate_synthetic_ohlcv(300)))
     engine._warn_about_other_mode_positions()
     assert any("LIVE pozisyon" in e["message"] and "ETH/USDT" in e["message"] for e in state.get_events())
+
+
+# ---------------------------------------------------- paper balance change
+@pytest.mark.parametrize("new_balance", [5_000.0, 20_000.0])
+def test_changing_paper_balance_is_not_a_loss_or_profit(state, new_balance):
+    market = FakeMarket(generate_synthetic_ohlcv(300))
+    engine = _paper_engine(state, market)
+    engine._apply_paper_balance_change()
+    engine.tick()  # day start and peak recorded at 10 000
+    assert state.get_day_start_equity("paper") == pytest.approx(10_000)
+
+    engine2 = _paper_engine(state, market)
+    engine2.executor.starting_balance = new_balance
+    engine2._apply_paper_balance_change()
+    engine2.tick()
+    assert state.get_day_start_equity("paper") == pytest.approx(new_balance)
+    assert state.get_state("safety_peak_equity:paper") == pytest.approx(new_balance)
+    assert state.get_setting("safety_halt_active") is False
+    status_loss = (state.get_day_start_equity("paper") - engine2.executor.get_equity({})) / new_balance
+    assert status_loss == pytest.approx(0.0)
+    assert any("başlangıç bakiyesi" in e["message"] for e in state.get_events())
