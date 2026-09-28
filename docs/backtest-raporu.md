@@ -176,6 +176,37 @@ Ayarlanan her değer bir adım aşağı ve yukarı oynatıldı. Diğer ayarlar s
 - **RSI alt sınırının hiçbir etkisi yok.** Kırılım olan mumlarda RSI zaten 50'nin üstünde. Yani momentum katmanı şu an pratikte bir şey filtrelemiyor ve sinyali trend, MACD+hacim ve kırılım katmanları belirliyor. Bu bir hata değil, ama çok katmanlı yapının bir katmanının şu an işlevsiz olduğunu bilmek gerekiyor.
 - **1 saatlik grafikte sonuç kırılgan.** Stop 3 yerine 2,5 ATR olunca tüm dönem sonucu sıfırın altına düşüyor (-%0,8), trailing 4 ATR olunca yarıya iniyor. 1 saatlik grafik için bu ayarlara güvenilmemeli.
 
+## Paper modda ne beklemeli
+
+Bu rakamlar, yeni varsayılanların 4 saatlik grafikte 14 paritedeki (5 ana ve 9 ek parite; Ocak 2021 ile Ağustos 2026 arası) backtest işlemlerinden alındı. Toplam 695 işlem var. Paper sonuçlarını bunlarla karşılaştır. Aşağıdaki aralıklarda kaldığı sürece bot beklendiği gibi çalışıyor demektir.
+
+| Ölçü | Tipik (ortanca) | Aralık / en kötü |
+|---|---|---|
+| Parite başına ayda işlem | 0,7 | 0,6 ile 0,9 arası |
+| Kazanma oranı | %32 | %10 ile %41 arası |
+| Ortalama kazanç | +2,7R | 1,5R ile 4,8R arası |
+| Ortalama kayıp | -0,7R | -0,6R ile -0,8R arası |
+| Arka arkaya kaybeden işlem (en uzun seri) | 7-8 | 13 (ATOM) |
+| Bir işlemin süresi | ~6 gün | 4,5 ile 7,7 gün arası |
+| Bir yıl içindeki en büyük düşüş | %4 | %10 |
+| Tüm dönemdeki en büyük düşüş | %11 | %17 |
+
+_R, işleme girerken planlanan risk tutarıdır. Varsayılanlarla bu, bakiyenin en fazla %1'i._
+
+Bu tablo pratikte şu anlama geliyor:
+
+- **İşlem az olacak.** Varsayılan iki pariteyle (BTC ve ETH) ayda toplam 1-2 işlem bekle. Hiç işlem olmayan haftalar normal.
+- **Çoğu işlem küçük zararla kapanacak.** Her 3 işlemden yaklaşık 2'si kaybeder. Kârı, arada bir gelen büyük kazançlar getirir: işlemlerin yaklaşık %10'u 3R'nin üstünde kazanır, en büyüğü 9,7R. Bu yüzden 6 ay sonunda toplam sonuç, hangi büyük hareketlerin yakalandığına çok bağlı olacak.
+- **Arka arkaya 7-8 kaybeden işlem normal.** Bu kadar seri, bakiyeyi yaklaşık %4-6 düşürür ve backtest'te her paritede görüldü. 13 kayıplık bir seri bile yaşandı. Bu tek başına botun bozulduğunu göstermez.
+- **Ne zaman endişelenmeli:**
+  - kayıplar düzenli olarak -1R'den büyükse (stop dolumları beklenenden kötü demektir),
+  - ayda parite başına 2'den fazla işlem açılıyorsa (ayarlar veya zaman dilimi değişmiş olabilir),
+  - düşüş %15'i geçiyorsa (backtest'teki en kötü değerin yakını),
+  - 15 işlemden fazla kazanç gelmiyorsa.
+
+  Bu durumlarda botu durdurup kayıtlara bak.
+- 6 ay paper modda iki pariteyle yaklaşık 10 işlem çıkar. Bu, sonucu kesin olarak yorumlamak için az. Rakamlar bu tablonun aralığındaysa bot doğru çalışıyor demektir, ama kârlı olacağı kanıtlanmış olmaz.
+
 ## Bu sonuçlar ne anlama geliyor, ne anlama gelmiyor
 
 **Anlama geldiği:**
@@ -194,7 +225,7 @@ Ayarlanan her değer bir adım aşağı ve yukarı oynatıldı. Diğer ayarlar s
 
 ## Öneriler
 
-1. **4 saatlik grafikte en az 6 ay paper modda çalıştırın.** Bu ayarlarla parite başına ayda ortalama 1 işlem bile çıkmaz. Sabırlı olun; sonuçları buradaki test dönemi rakamlarıyla karşılaştırın.
+1. **4 saatlik grafikte en az 6 ay paper modda çalıştırın.** Bu ayarlarla parite başına ayda ortalama 1 işlem bile çıkmaz. Sabırlı olun; sonuçları "Paper modda ne beklemeli" bölümündeki aralıklarla karşılaştırın.
 2. **15 dakika ve altını kullanmayın.** Maliyetler her ayarda kazancı aşıyor.
 3. **Canlıya geçerseniz küçük başlayın ve BNB ile komisyon indirimi kullanın.** Maliyet bu stratejinin en büyük düşmanı.
 4. **Denemeye değer fikirler (paper modda):**
