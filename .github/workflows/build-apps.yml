@@ -95,8 +95,9 @@ jobs:
     runs-on: ubuntu-latest
     # Job-wide: both `expo prebuild` and Gradle's createExpoConfig task read mobile/app.config.js.
     # The second one writes the version the app reports at runtime (used by "Yeni sürüm var").
+    # (the same value as VERSION above; the env context is not available at job level)
     env:
-      APP_VERSION: ${{ env.VERSION }}
+      APP_VERSION: ${{ inputs.version || '0.0.0-dev' }}
       # grows with every run, so a newer APK always installs over an older one
       APP_VERSION_CODE: ${{ github.run_number }}
     steps:
