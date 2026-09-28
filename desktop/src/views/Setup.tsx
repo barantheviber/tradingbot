@@ -1,15 +1,25 @@
 import { useEffect, useState } from "react";
 import type { LocalSetup, MarketType } from "../../shared/types";
-import { DEFAULT_SETUP, EXCHANGES, parseSymbols, TIMEFRAMES, timeframeLabel, validateSetup } from "../../shared/types";
+import {
+  DEFAULT_SETUP,
+  EXCHANGES,
+  parseSymbols,
+  setupChangeWarnings,
+  TIMEFRAMES,
+  timeframeLabel,
+  validateSetup,
+} from "../../shared/types";
 
 interface Props {
   initial: LocalSetup | null;
   firstRun: boolean;
   botRunning: boolean;
+  /** symbols with open positions, as far as the app knows */
+  openSymbols?: string[];
   onSaved: () => void;
 }
 
-export default function Setup({ initial, firstRun, botRunning, onSaved }: Props) {
+export default function Setup({ initial, firstRun, botRunning, openSymbols = [], onSaved }: Props) {
   const start = initial ?? DEFAULT_SETUP;
   const [exchangeId, setExchangeId] = useState(start.exchangeId);
   const [marketType, setMarketType] = useState<MarketType>(start.marketType);
@@ -46,6 +56,8 @@ export default function Setup({ initial, firstRun, botRunning, onSaved }: Props)
     setProblems(found);
     setSaved(false);
     if (found.length) return;
+    const warnings = setupChangeWarnings(initial, setup, openSymbols);
+    if (warnings.length && !window.confirm(`${warnings.join("\n\n")}\n\nYine de kaydedilsin mi?`)) return;
     setBusy(true);
     try {
       await window.desktop.localBot.saveSetup(setup);

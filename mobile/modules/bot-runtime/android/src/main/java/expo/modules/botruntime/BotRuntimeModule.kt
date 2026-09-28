@@ -28,11 +28,18 @@ class BotRuntimeModule : Module() {
     Name("BotRuntime")
 
     Function("start") { config: String ->
-      context.getSharedPreferences("tradingbot_runtime", Context.MODE_PRIVATE)
-        .edit().putString("phase", "starting").putString("message", null).putInt("pid", Process.myPid()).apply()
-      ContextCompat.startForegroundService(
-        context, serviceIntent("com.barantheviber.tradingbot.START_BOT").putExtra("config", config)
-      )
+      val prefs = context.getSharedPreferences("tradingbot_runtime", Context.MODE_PRIVATE)
+      prefs.edit().putString("phase", "starting").putString("message", null).putInt("pid", Process.myPid()).apply()
+      try {
+        ContextCompat.startForegroundService(
+          context, serviceIntent("com.barantheviber.tradingbot.START_BOT").putExtra("config", config)
+        )
+      } catch (e: Exception) {
+        // Android refused to start the service: nothing runs, so the app must not stay on "starting".
+        prefs.edit().putString("phase", "error")
+          .putString("message", "Android botu başlatmaya izin vermedi (${e.javaClass.simpleName}). Uygulamayı açıkken tekrar deneyin.")
+          .apply()
+      }
     }
 
     Function("stop") {

@@ -1,13 +1,17 @@
 // Pure helpers behind the bot the app runs on this computer (npm run build first; `npm test` does it).
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
-const { afterStart, afterStop, buildEnvFile, childEnv, exitReason, restartDelayMs, shouldResume } = require(
+const { afterStart, afterStop, buildEnvFile, childEnv, exitReason, restartDelayMs, shouldResume, watchExit } = require(
   "../dist-electron/electron/localBotEnv.js",
 );
-const { DEFAULT_SETUP, durationText, nextCandleClose, parseSymbols, validateSetup } = require("../dist-electron/shared/localBot.js");
+const { DEFAULT_SETUP, durationText, nextCandleClose, parseSymbols, setupChangeWarnings, validateSetup } = require(
+  "../dist-electron/shared/localBot.js",
+);
 
 test("the .env is paper only and never carries keys, the token or a live switch", () => {
   const env = buildEnvFile({ ...DEFAULT_SETUP, symbols: ["BTC/USDT", "SOL/USDT"] });
@@ -74,4 +78,40 @@ test("after a restart the bot comes back only if it was running, never after Dur
   assert.equal(shouldResume(stopped), false, "stopped with Durdur, e.g. before moving to the phone");
   assert.equal(shouldResume(afterStop(stopped, false)), false, "and quitting afterwards keeps it stopped");
   assert.equal(shouldResume({ autoStart: true }), false, "no setup");
+});
+
+test("a bot program that cannot start counts as gone, so Durdur never waits for it", async () => {
+  const calls = [];
+  const missing = spawn("/nonexistent/tradingbot-core", ["run"], { stdio: ["pipe", "pipe", "pipe"] });
+  await watchExit(missing, (code, err) => calls.push([code, err?.code]));
+  assert.deepEqual(calls, [[null, "ENOENT"]]);
+
+  const exits = [];
+  const quick = spawn(process.execPath, ["-e", "process.exit(3)"], { stdio: ["pipe", "pipe", "pipe"] });
+  await watchExit(quick, (code, err) => exits.push([code, err]));
+  assert.deepEqual(exits, [[3, null]]);
+});
+
+test("saving a setup warns about open positions", () => {
+  const before = { ...DEFAULT_SETUP, symbols: ["BTC/USDT", "ETH/USDT"] };
+  assert.deepEqual(setupChangeWarnings(null, before, ["BTC/USDT"]), [], "first setup");
+  assert.deepEqual(setupChangeWarnings(before, { ...before, timeframe: "1h" }, ["BTC/USDT"]), []);
+  assert.deepEqual(setupChangeWarnings(before, { ...before, symbols: ["BTC/USDT"] }, []), [], "nothing open");
+
+  const dropped = setupChangeWarnings(before, { ...before, symbols: ["BTC/USDT"] }, ["ETH/USDT", "ETH/USDT"]);
+  assert.equal(dropped.length, 1);
+  assert.match(dropped[0], /^ETH\/USDT listeden çıkıyor/);
+
+  const moved = setupChangeWarnings(before, { ...before, exchangeId: "bybit" }, ["BTC/USDT"]);
+  assert.equal(moved.length, 1);
+  assert.match(moved[0], /stop-loss çalışmayabilir/);
+
+  // since #24 a changed virtual balance counts as a deposit or withdrawal, not as profit or loss
+  assert.deepEqual(setupChangeWarnings(before, { ...before, startingBalance: 5000 }, []), []);
+});
+
+test("the app refuses a second copy of itself (two bots on one data folder)", () => {
+  const main = fs.readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
+  assert.match(main, /requestSingleInstanceLock\(\)/);
+  assert.match(main, /whenReady\(\)\.then\(\(\) => \{\n\s+if \(!primary\) return;/);
 });

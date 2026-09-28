@@ -19,6 +19,7 @@ import {
   LOCAL_API_PORT,
   restartDelayMs,
   shouldResume,
+  watchExit,
   type Stored,
 } from "./localBotEnv";
 
@@ -171,15 +172,12 @@ export class LocalBot {
       windowsHide: true,
     });
     this.child = child;
-    this.exited = new Promise((resolve) => {
-      child.once("exit", (code) => {
-        this.child = null;
-        this.onExit(code, outputTail, Date.now() - startedAt);
-        resolve();
-      });
-    });
-    child.once("error", (err) => {
-      outputTail += `\nSTARTUP_ERROR: Bot başlatılamadı (${err.message})`;
+    // Writing "stop" to a process that just died must not crash the app.
+    child.stdin?.on("error", () => undefined);
+    this.exited = watchExit(child, (code, startError) => {
+      this.child = null;
+      if (startError) this.onStartError(startError);
+      else this.onExit(code, outputTail, Date.now() - startedAt);
     });
     // Logs go to stdout (the bot also writes them to logs/), errors to stderr. Both pipes must be
     // drained or the bot blocks once they fill up.
@@ -216,6 +214,24 @@ export class LocalBot {
       this.restartTimer = null;
       if (this.wantRunning) this.spawnChild();
     }, delay);
+  }
+
+  /** The bot program could not be run at all; trying again would fail the same way. */
+  private onStartError(err: Error): void {
+    if (!this.wantRunning) {
+      this.setPhase("stopped", null);
+      return;
+    }
+    this.wantRunning = false;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+    this.setPhase(
+      "error",
+      `Bot programı çalıştırılamadı (${err.message}). Antivirüs programı engellemiş olabilir; ` +
+        "uygulamayı yeniden kurmayı deneyin.",
+    );
   }
 
   private setPhase(phase: LocalBotPhase, message: string | null): void {

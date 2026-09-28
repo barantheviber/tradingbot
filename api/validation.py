@@ -28,12 +28,15 @@ BOUNDS: Dict[str, _Bounds] = {
     "volume_factor": (0, None, True),
     "breakout_atr_buffer": (0, None, True),
     "min_confirmations": (1, 3, True),
-    "risk_per_trade_pct": (0, 100, False),
-    "atr_sl_multiplier": (0, None, False),
+    # Money limits stay in sane ranges: at most 5 % of equity at risk per trade, a stop at least
+    # half an ATR away (a closer one sizes the position up to the exposure cap on noise alone)
+    # and a daily loss limit that is always on.
+    "risk_per_trade_pct": (0, 5, False),
+    "atr_sl_multiplier": (0.5, 20, True),
     "risk_reward_ratio": (0, None, False),
     "trailing_atr_multiplier": (0, None, False),
     "trailing_activation_r": (0, None, True),
-    "daily_loss_limit_pct": (0, 100, True),
+    "daily_loss_limit_pct": (0, 20, False),
     "max_open_positions": (0, 100, True),
     "max_symbol_exposure_pct": (0, 100, False),
     "max_drawdown_halt_pct": (0, 100, True),
