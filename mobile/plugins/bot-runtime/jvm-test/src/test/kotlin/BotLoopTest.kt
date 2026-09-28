@@ -10,7 +10,11 @@ import kotlin.test.assertTrue
 
 class BotLoopTest {
   /** A bot that runs until stopped; start can be held open to stop in the middle of it. */
-  private class FakeBot(private val startGate: CountDownLatch? = null, private val failStart: String? = null) : BotLoop.Bot {
+  private class FakeBot(
+    private val startGate: CountDownLatch? = null,
+    private val failStart: String? = null,
+    private val stopGate: CountDownLatch? = null,
+  ) : BotLoop.Bot {
     val starts: MutableList<String> = Collections.synchronizedList(mutableListOf())
     val stopped = CountDownLatch(1)
     @Volatile var stops = 0
@@ -27,6 +31,7 @@ class BotLoopTest {
     override fun status() = BotLoop.Status(running, error)
 
     override fun stop() {
+      stopGate?.await(5, TimeUnit.SECONDS)
       stops += 1
       running = false
       stopped.countDown()
@@ -105,23 +110,46 @@ class BotLoopTest {
     assertEquals(listOf(2), events.finishedIds)
   }
 
+  private fun waitForStarts(bot: FakeBot, n: Int) {
+    val until = System.currentTimeMillis() + 5_000
+    while (bot.starts.size < n && System.currentTimeMillis() < until) Thread.sleep(10)
+  }
+
   @Test
-  fun `a restart right after Durdur runs the new setup and keeps the service`() {
-    val bot = FakeBot()
+  fun `a start while Durdur is still stopping runs the new setup and keeps the service`() {
+    val stopGate = CountDownLatch(1)
+    val bot = FakeBot(stopGate = stopGate)
     val events = Recorder()
     val loop = loop(bot, events)
     loop.start("old", 1)
     events.waitFor("running")
 
     loop.stop(2)
-    loop.start("new", 3)
-    val until = System.currentTimeMillis() + 5_000
-    while (bot.starts.size < 2 && System.currentTimeMillis() < until) Thread.sleep(10)
+    loop.start("new", 3) // arrives before the old bot has finished stopping
+    stopGate.countDown()
+    waitForStarts(bot, 2)
 
     assertEquals(listOf("old", "new"), bot.starts)
     assertEquals(1, bot.stops)
     assertTrue(loop.isActive)
     assertEquals(emptyList(), events.finishedIds, "the service must not stop itself under the new bot")
+  }
+
+  @Test
+  fun `a start after Durdur has finished runs the new setup`() {
+    val bot = FakeBot()
+    val events = Recorder()
+    val loop = loop(bot, events)
+    loop.start("old", 1)
+    events.waitFor("running")
+    loop.stop(2)
+    assertTrue(events.done.await(2, TimeUnit.SECONDS))
+
+    loop.start("new", 3)
+    waitForStarts(bot, 2)
+    assertEquals(listOf("old", "new"), bot.starts)
+    assertTrue(loop.isActive)
+    assertEquals(listOf(2), events.finishedIds)
   }
 
   @Test
