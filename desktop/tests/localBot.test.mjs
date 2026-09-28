@@ -92,7 +92,7 @@ test("a bot program that cannot start counts as gone, so Durdur never waits for 
   assert.deepEqual(exits, [[3, null]]);
 });
 
-test("saving a setup warns about open positions and a lower virtual balance", () => {
+test("saving a setup warns about open positions", () => {
   const before = { ...DEFAULT_SETUP, symbols: ["BTC/USDT", "ETH/USDT"] };
   assert.deepEqual(setupChangeWarnings(null, before, ["BTC/USDT"]), [], "first setup");
   assert.deepEqual(setupChangeWarnings(before, { ...before, timeframe: "1h" }, ["BTC/USDT"]), []);
@@ -106,8 +106,8 @@ test("saving a setup warns about open positions and a lower virtual balance", ()
   assert.equal(moved.length, 1);
   assert.match(moved[0], /stop-loss çalışmayabilir/);
 
-  assert.equal(setupChangeWarnings(before, { ...before, startingBalance: 5000 }, []).length, 1);
-  assert.deepEqual(setupChangeWarnings(before, { ...before, startingBalance: 20000 }, []), []);
+  // since #24 a changed virtual balance counts as a deposit or withdrawal, not as profit or loss
+  assert.deepEqual(setupChangeWarnings(before, { ...before, startingBalance: 5000 }, []), []);
 });
 
 test("the app refuses a second copy of itself (two bots on one data folder)", () => {

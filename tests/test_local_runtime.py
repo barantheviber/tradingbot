@@ -100,3 +100,10 @@ def test_unparsable_value_is_a_start_error(runtime_env, monkeypatch):
     monkeypatch.setenv("POLL_INTERVAL_SEC", "often")
     with pytest.raises(RuntimeStartError, match="POLL_INTERVAL_SEC"):
         LocalRuntime(str(tmp_path / "missing.env")).start()
+
+
+def test_malformed_paper_switch_is_a_start_error(runtime_env, monkeypatch):
+    tmp_path, _ = runtime_env
+    monkeypatch.setenv("PAPER_TRADING", "maybe")
+    with pytest.raises(RuntimeStartError, match="PAPER_TRADING"):
+        LocalRuntime(str(tmp_path / "missing.env")).start()

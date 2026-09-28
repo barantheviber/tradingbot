@@ -147,10 +147,5 @@ export function setupChangeWarnings(before: LocalSetup | null, after: LocalSetup
           "seviyelerini izlemeye devam eder; trailing stop artık ilerlemez ve bu sembolde yeni işlem açılmaz.",
       );
   }
-  if (Number(after.startingBalance) < Number(before.startingBalance))
-    warnings.push(
-      "Sanal başlangıç bakiyesini düşürmek özsermayeyi o kadar düşürür. Günlük zarar limiti ve otomatik fren bunu " +
-        "zarar sayıp yeni pozisyon açmayı durdurabilir.",
-    );
   return warnings;
 }
