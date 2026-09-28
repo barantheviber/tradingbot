@@ -32,6 +32,11 @@ const bridge: DesktopBridge = {
       return () => ipcRenderer.removeListener("localBot:state", handler);
     },
   },
+  updates: {
+    check: () => ipcRenderer.invoke("updates:check"),
+    dismiss: (version: string) => ipcRenderer.invoke("updates:dismiss", version),
+    openPage: (version: string) => ipcRenderer.invoke("updates:openPage", version),
+  },
 };
 
 contextBridge.exposeInMainWorld("desktop", bridge);

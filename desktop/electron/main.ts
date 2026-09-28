@@ -6,6 +6,7 @@ import { performCall } from "./apiClient";
 import { normaliseBaseUrl } from "./apiRoutes";
 import { getPublicConfig, getToken, saveConfig } from "./configStore";
 import { dataDir, LOCAL_BASE_URL, LocalBot } from "./localBot";
+import { availableUpdate, dismissUpdate, openReleasePage } from "./updateCheck";
 import { LiveFeed } from "./wsClient";
 
 let win: BrowserWindow | null = null;
@@ -168,6 +169,11 @@ ipcMain.handle("localBot:stop", async () => {
   if (managed) await localBot.stop();
   return localState();
 });
+
+// "Yeni sürüm var": the window asks; the main process checks GitHub at most once a day.
+ipcMain.handle("updates:check", () => availableUpdate());
+ipcMain.handle("updates:dismiss", (_e, version: unknown) => dismissUpdate(version));
+ipcMain.handle("updates:openPage", (_e, version: unknown) => openReleasePage(version));
 
 app.whenReady().then(() => {
   if (!primary) return;

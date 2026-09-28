@@ -3,6 +3,7 @@
 
 import type { SettingValue, WsMessage } from "./apiTypes";
 import type { LocalBotState, LocalSetup } from "./localBot";
+import type { UpdateInfo } from "./updateCheck";
 
 export * from "./apiTypes";
 export * from "./localBot";
@@ -60,5 +61,11 @@ export interface DesktopBridge {
     /** Open the app when Windows starts (installed app only; supported is false in development). */
     getOpenAtLogin(): Promise<{ supported: boolean; enabled: boolean }>;
     setOpenAtLogin(enabled: boolean): Promise<void>;
+  };
+  /** "Yeni sürüm var": looks for a newer release at most once a day; never downloads anything. */
+  updates: {
+    check(): Promise<UpdateInfo | null>;
+    dismiss(version: string): Promise<void>;
+    openPage(version: string): Promise<void>;
   };
 }
