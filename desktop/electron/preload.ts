@@ -24,6 +24,8 @@ const bridge: DesktopBridge = {
     start: () => ipcRenderer.invoke("localBot:start"),
     stop: () => ipcRenderer.invoke("localBot:stop"),
     openLogFolder: () => ipcRenderer.invoke("localBot:openLogFolder"),
+    getOpenAtLogin: () => ipcRenderer.invoke("localBot:getOpenAtLogin"),
+    setOpenAtLogin: (enabled: boolean) => ipcRenderer.invoke("localBot:setOpenAtLogin", enabled),
     onState(listener: (state: LocalBotState) => void) {
       const handler = (_e: IpcRendererEvent, s: LocalBotState) => listener(s);
       ipcRenderer.on("localBot:state", handler);

@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.Process
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.chaquo.python.Python
@@ -25,7 +26,8 @@ import java.util.concurrent.Executors
  * project by plugins/withBotRuntime.js; the JS side talks to it through modules/bot-runtime.
  *
  * State for the JS side lives in SharedPreferences "tradingbot_runtime": phase
- * (stopped | starting | running | stopping | error) and message.
+ * (stopped | starting | running | stopping | error), message, and pid (the process the service
+ * runs in, so a phase left over from before a restart is not shown as running).
  */
 class BotService : Service() {
   companion object {
@@ -62,7 +64,7 @@ class BotService : Service() {
       finish()
       return START_NOT_STICKY
     }
-    prefs.edit().putString("config", config).putBoolean("wanted", true).apply()
+    prefs.edit().putString("config", config).putBoolean("wanted", true).putInt("pid", Process.myPid()).apply()
     goForeground()
     if (!active) {
       active = true

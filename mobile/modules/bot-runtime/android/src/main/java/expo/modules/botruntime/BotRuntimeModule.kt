@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.PowerManager
+import android.os.Process
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import java.security.SecureRandom
@@ -28,7 +29,7 @@ class BotRuntimeModule : Module() {
 
     Function("start") { config: String ->
       context.getSharedPreferences("tradingbot_runtime", Context.MODE_PRIVATE)
-        .edit().putString("phase", "starting").putString("message", null).apply()
+        .edit().putString("phase", "starting").putString("message", null).putInt("pid", Process.myPid()).apply()
       ContextCompat.startForegroundService(
         context, serviceIntent("com.barantheviber.tradingbot.START_BOT").putExtra("config", config)
       )
@@ -40,7 +41,11 @@ class BotRuntimeModule : Module() {
 
     Function("getState") {
       val prefs = context.getSharedPreferences("tradingbot_runtime", Context.MODE_PRIVATE)
-      mapOf("phase" to (prefs.getString("phase", "stopped") ?: "stopped"), "message" to prefs.getString("message", null))
+      val phase = prefs.getString("phase", "stopped") ?: "stopped"
+      // The service runs in this process. A busy phase written by another process (before a phone
+      // restart, or before Android killed the app) is stale: nothing is running now.
+      val stale = phase in setOf("starting", "running", "stopping") && prefs.getInt("pid", -1) != Process.myPid()
+      mapOf("phase" to (if (stale) "stopped" else phase), "message" to prefs.getString("message", null))
     }
 
     /** Random token for the phone's own API (hex, 64 characters). */

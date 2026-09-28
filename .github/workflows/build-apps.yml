@@ -12,6 +12,10 @@ on:
         description: "Version for the release (e.g. 0.1.0)"
         required: true
         default: "0.1.0"
+      notes:
+        description: "What changed in this release (Turkish, shown first on the release page)"
+        required: false
+        default: ""
   pull_request:
     paths:
       - "packaging/**"
@@ -166,6 +170,8 @@ jobs:
           name: Trading Bot ${{ env.VERSION }}
           files: files/*
           body: |
+            ${{ inputs.notes }}
+
             **Windows:** `TradingBot-Setup-${{ env.VERSION }}.exe` dosyasını indirip çalıştırın. Windows "bilinmeyen yayıncı" uyarısı gösterirse "Ek bilgi" > "Yine de çalıştır" deyin (uygulama imzalı değil).
             **Android:** `TradingBot-${{ env.VERSION }}.apk` dosyasını telefona indirip açın; "bilinmeyen kaynaklardan yükleme" izni isterse verin.
 

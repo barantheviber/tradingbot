@@ -144,6 +144,15 @@ ipcMain.handle("localBot:start", async () => {
 ipcMain.handle("localBot:openLogFolder", async () => {
   if (managed) await shell.openPath(path.join(dataDir(), "logs"));
 });
+// Only the installed app registers itself; in development this would register the Electron binary.
+const loginItemSupported = () => managed && app.isPackaged;
+ipcMain.handle("localBot:getOpenAtLogin", () => ({
+  supported: loginItemSupported(),
+  enabled: loginItemSupported() && app.getLoginItemSettings().openAtLogin,
+}));
+ipcMain.handle("localBot:setOpenAtLogin", (_e, enabled: boolean) => {
+  if (loginItemSupported()) app.setLoginItemSettings({ openAtLogin: Boolean(enabled) });
+});
 ipcMain.handle("localBot:stop", async () => {
   if (managed) await localBot.stop();
   return localState();

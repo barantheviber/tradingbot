@@ -4,7 +4,8 @@
 // - Chaquopy (Python for Android) bundles the bot's modules (repo root, api/, execution/,
 //   local_runtime.py, packaging/android/android_runtime.py) and the packages in
 //   packaging/android/requirements-android.txt.
-// - BotService (plugins/bot-runtime/BotService.kt) runs it as a foreground service.
+// - BotService (plugins/bot-runtime/BotService.kt) runs it as a foreground service;
+//   BootReceiver.kt starts it again after a phone restart or app update if it was running.
 // - Cleartext HTTP is allowed only to 127.0.0.1, where the phone's own API listens.
 // - Release builds are signed with the keystore named by ANDROID_KEYSTORE_* environment
 //   variables when they are set (CI release builds), otherwise with the debug key.
@@ -102,6 +103,7 @@ function withBotManifest(config) {
       'android.permission.POST_NOTIFICATIONS',
       'android.permission.WAKE_LOCK',
       'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+      'android.permission.RECEIVE_BOOT_COMPLETED',
     ];
     manifest['uses-permission'] = manifest['uses-permission'] ?? [];
     for (const name of perms) {
@@ -131,6 +133,19 @@ function withBotManifest(config) {
         },
       ],
     });
+    // Restarts the bot after a phone restart or an app update if it was running (BootReceiver.kt).
+    app.receiver = (app.receiver ?? []).filter((r) => r.$['android:name'] !== '.BootReceiver');
+    app.receiver.push({
+      $: { 'android:name': '.BootReceiver', 'android:exported': 'true' },
+      'intent-filter': [
+        {
+          action: [
+            { $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } },
+            { $: { 'android:name': 'android.intent.action.MY_PACKAGE_REPLACED' } },
+          ],
+        },
+      ],
+    });
     return cfg;
   });
 }
@@ -157,7 +172,9 @@ function withBotFiles(config) {
 
       const javaDir = path.join(main, 'java', PACKAGE_PATH);
       fs.mkdirSync(javaDir, { recursive: true });
-      fs.copyFileSync(path.join(__dirname, 'bot-runtime', 'BotService.kt'), path.join(javaDir, 'BotService.kt'));
+      for (const file of ['BotService.kt', 'BootReceiver.kt']) {
+        fs.copyFileSync(path.join(__dirname, 'bot-runtime', file), path.join(javaDir, file));
+      }
 
       const xmlDir = path.join(main, 'res', 'xml');
       fs.mkdirSync(xmlDir, { recursive: true });
