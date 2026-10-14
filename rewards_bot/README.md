@@ -34,14 +34,16 @@ programı çıkarsa yapı yeni görev eklemeye uygundur (`runner.py`).
 
 ## Kurulum (Windows)
 
-1. [Python 3](https://www.python.org/downloads/) kurun. Kurulumda **"Add python.exe to PATH"**
-   kutusunu işaretleyin.
+1. Klasörü kalıcı bir yere koyun (ör. Belgeler). Kurulumdan sonra taşırsanız kurulumu yeniden
+   çalıştırın, çünkü otomatik görev bu klasörü gösterir.
 2. `rewards_bot\kurulum.bat` dosyasına çift tıklayın. Dosya şunları yapar:
+   - Python yoksa `winget` ile kurar (olmazsa [python.org](https://www.python.org/downloads/)'dan
+     kurmanızı ister; kurulumda **"Add python.exe to PATH"** kutusunu işaretleyin),
    - ayrı bir Python ortamı (`.venv-rewards`) kurar,
    - Playwright'ı kurar (bilgisayardaki Microsoft Edge kullanılır, ayrıca tarayıcı indirilmez),
    - **bir kez** giriş penceresi açar: Microsoft hesabınızla giriş yapıp **"Oturumum açık kalsın"**
      seçeneğini işaretleyin; giriş algılanınca pencere kendiliğinden kapanır,
-   - günlük otomatik görevi kurar.
+   - günlük otomatik görevi kurar ve botu hemen arka planda bir kez çalıştırır.
 
 Bundan sonra yapmanız gereken bir şey yok. Bot şu durumlarda arka planda, pencere açmadan çalışır:
 

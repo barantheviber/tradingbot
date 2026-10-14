@@ -1,12 +1,24 @@
 @echo off
-rem Rewards bot kurulumu: Python ortamı, giriş ve günlük otomatik görev.
+rem Rewards bot kurulumu: Python, paketler, giris, gunluk otomatik gorev ve ilk calistirma.
 chcp 65001 >nul
 cd /d "%~dp0.."
 
-set "PY=py -3"
-where py >nul 2>nul || set "PY=python"
-%PY% --version >nul 2>nul || (
-  echo Python bulunamadi. https://www.python.org/downloads/ adresinden Python 3 kurun
+set "PY="
+where py >nul 2>nul && set "PY=py -3"
+if not defined PY (
+  where python >nul 2>nul && set "PY=python"
+)
+if defined PY (
+  %PY% --version >nul 2>nul || set "PY="
+)
+
+if not defined PY (
+  echo Python bulunamadi, winget ile kuruluyor...
+  winget install -e --id Python.Python.3.12 --scope user --silent --accept-package-agreements --accept-source-agreements
+  if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set PY="%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+)
+if not defined PY (
+  echo Python kurulamadi. https://www.python.org/downloads/ adresinden Python 3 kurun
   echo ^(kurulumda "Add python.exe to PATH" kutusunu isaretleyin^) ve bu dosyayi tekrar calistirin.
   pause
   exit /b 1
@@ -30,8 +42,10 @@ echo.
 %VPY% -m rewards_bot install-task || goto :error
 
 echo.
-echo Kurulum tamam. Bot her gun arka planda kendiliginden calisacak.
-echo Hemen denemek icin: %VPY% -m rewards_bot run
+echo Bot simdi arka planda calismaya basliyor; pencere acmaz, bilgisayarinizi kullanmaya devam edebilirsiniz.
+schtasks /Run /TN RewardsBot >nul 2>nul || start "" /b .venv-rewards\Scripts\pythonw.exe -m rewards_bot run --once-per-day
+echo Ilerleme: logs\rewards_bot.log   Durum: %VPY% -m rewards_bot status
+echo Bundan sonra her gun kendiliginden calisir. Bu pencereyi kapatabilirsiniz.
 pause
 exit /b 0
 
