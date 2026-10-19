@@ -1,0 +1,533 @@
+{
+ "timeframe": "4h",
+ "costs": {
+  "fee_rate": 0.001,
+  "slippage_bps": 5.0,
+  "stop_slippage_bps": 5.0,
+  "min_notional": 10.0
+ },
+ "grid_size": 160,
+ "decision": {
+  "all": {
+   "refit_window_wins": 2,
+   "windows": 8,
+   "checks": {
+    "higher_sharpe": false,
+    "wins_majority": false,
+    "drawdown_ok": true
+   },
+   "pass": false
+  },
+  "from_2024_07": {
+   "refit_window_wins": 1,
+   "windows": 5,
+   "checks": {
+    "higher_sharpe": false,
+    "wins_majority": false,
+    "drawdown_ok": true
+   },
+   "pass": false
+  },
+  "adopt_refit": false
+ },
+ "pairs": [
+  "BNBUSDT",
+  "BTCUSDT",
+  "ETHUSDT",
+  "SOLUSDT",
+  "XRPUSDT"
+ ],
+ "folds": [
+  {
+   "fit": "2021-01..2022-12",
+   "test": "2023-01..2023-06",
+   "chosen": {
+    "atr_sl_multiplier": 3.5,
+    "trailing_atr_multiplier": 6.0,
+    "risk_reward_ratio": 5.0,
+    "rsi_long_max": 100.0
+   },
+   "fit_mean_sharpe": 0.9831229351473233,
+   "from_holdout": false,
+   "fixed": {
+    "mean_return_pct": 1.2032383902064048,
+    "mean_sharpe": 0.3070015182970341,
+    "mean_max_dd_pct": 4.260003027445678,
+    "positive": 3,
+    "trades": 31
+   },
+   "refit": {
+    "mean_return_pct": 1.284046961874974,
+    "mean_sharpe": 0.671436623016634,
+    "mean_max_dd_pct": 2.8937224747302217,
+    "positive": 4,
+    "trades": 27
+   },
+   "previous_defaults": {
+    "mean_return_pct": -1.8133388399099057,
+    "mean_sharpe": -1.7031905613398302,
+    "mean_max_dd_pct": 2.21702104927464,
+    "positive": 1,
+    "trades": 19
+   },
+   "buy_hold_mean_pct": 54.6524601180927
+  },
+  {
+   "fit": "2021-07..2023-06",
+   "test": "2023-07..2023-12",
+   "chosen": {
+    "atr_sl_multiplier": 4.0,
+    "trailing_atr_multiplier": 5.0,
+    "risk_reward_ratio": 20.0,
+    "rsi_long_max": 100.0
+   },
+   "fit_mean_sharpe": 0.8022333247216216,
+   "from_holdout": false,
+   "fixed": {
+    "mean_return_pct": 4.297297246255138,
+    "mean_sharpe": 1.0884181905800836,
+    "mean_max_dd_pct": 3.1490956448522,
+    "positive": 5,
+    "trades": 33
+   },
+   "refit": {
+    "mean_return_pct": 3.0078612699180285,
+    "mean_sharpe": 0.9593976319909745,
+    "mean_max_dd_pct": 2.8958139175226103,
+    "positive": 5,
+    "trades": 32
+   },
+   "previous_defaults": {
+    "mean_return_pct": -1.161134734664444,
+    "mean_sharpe": -1.1607805084495175,
+    "mean_max_dd_pct": 1.9116401863203198,
+    "positive": 0,
+    "trades": 27
+   },
+   "buy_hold_mean_pct": 114.82991541882309
+  },
+  {
+   "fit": "2022-01..2023-12",
+   "test": "2024-01..2024-06",
+   "chosen": {
+    "atr_sl_multiplier": 4.0,
+    "trailing_atr_multiplier": 4.0,
+    "risk_reward_ratio": 5.0,
+    "rsi_long_max": 100.0
+   },
+   "fit_mean_sharpe": 0.7039354271691097,
+   "from_holdout": false,
+   "fixed": {
+    "mean_return_pct": 1.4162344816138273,
+    "mean_sharpe": 0.35683411273292565,
+    "mean_max_dd_pct": 3.947539113135357,
+    "positive": 3,
+    "trades": 34
+   },
+   "refit": {
+    "mean_return_pct": 1.1277020376499425,
+    "mean_sharpe": 0.22395543465164378,
+    "mean_max_dd_pct": 3.2202975142413415,
+    "positive": 3,
+    "trades": 37
+   },
+   "previous_defaults": {
+    "mean_return_pct": 0.5536996915133741,
+    "mean_sharpe": 0.2883848388349196,
+    "mean_max_dd_pct": 1.8967880158368864,
+    "positive": 4,
+    "trades": 29
+   },
+   "buy_hold_mean_pct": 41.540003421828914
+  },
+  {
+   "fit": "2022-07..2024-06",
+   "test": "2024-07..2024-12",
+   "chosen": {
+    "atr_sl_multiplier": 4.0,
+    "trailing_atr_multiplier": 6.0,
+    "risk_reward_ratio": 5.0,
+    "rsi_long_max": 100.0
+   },
+   "fit_mean_sharpe": 0.6815037698139151,
+   "from_holdout": true,
+   "fixed": {
+    "mean_return_pct": 2.278715062590102,
+    "mean_sharpe": 0.12752498325601822,
+    "mean_max_dd_pct": 3.5252430121997818,
+    "positive": 3,
+    "trades": 27
+   },
+   "refit": {
+    "mean_return_pct": 0.7368295529250244,
+    "mean_sharpe": -0.09068857203481731,
+    "mean_max_dd_pct": 2.9030669679806604,
+    "positive": 2,
+    "trades": 26
+   },
+   "previous_defaults": {
+    "mean_return_pct": -1.2558133079270162,
+    "mean_sharpe": -0.8211556789830953,
+    "mean_max_dd_pct": 2.845005713007996,
+    "positive": 2,
+    "trades": 32
+   },
+   "buy_hold_mean_pct": 85.28069144284329
+  },
+  {
+   "fit": "2023-01..2024-12",
+   "test": "2025-01..2025-06",
+   "chosen": {
+    "atr_sl_multiplier": 3.5,
+    "trailing_atr_multiplier": 4.0,
+    "risk_reward_ratio": 20.0,
+    "rsi_long_max": 100.0
+   },
+   "fit_mean_sharpe": 0.9761851680553392,
+   "from_holdout": true,
+   "fixed": {
+    "mean_return_pct": -0.10958539280479407,
+    "mean_sharpe": -0.6388574880441853,
+    "mean_max_dd_pct": 2.2344257662858586,
+    "positive": 1,
+    "trades": 19
+   },
+   "refit": {
+    "mean_return_pct": -0.845589307065897,
+    "mean_sharpe": -0.9831362458034949,
+    "mean_max_dd_pct": 2.4038584587286844,
+    "positive": 1,
+    "trades": 21
+   },
+   "previous_defaults": {
+    "mean_return_pct": -0.9666330335242556,
+    "mean_sharpe": -1.4774284974058625,
+    "mean_max_dd_pct": 1.772211050491738,
+    "positive": 0,
+    "trades": 19
+   },
+   "buy_hold_mean_pct": -6.2413653103299565
+  },
+  {
+   "fit": "2023-07..2025-06",
+   "test": "2025-07..2025-12",
+   "chosen": {
+    "atr_sl_multiplier": 4.0,
+    "trailing_atr_multiplier": 4.0,
+    "risk_reward_ratio": 20.0,
+    "rsi_long_max": 100.0
+   },
+   "fit_mean_sharpe": 0.7087983126784618,
+   "from_holdout": true,
+   "fixed": {
+    "mean_return_pct": 2.5032608441083393,
+    "mean_sharpe": 0.8038121536058973,
+    "mean_max_dd_pct": 2.9142351146989007,
+    "positive": 4,
+    "trades": 19
+   },
+   "refit": {
+    "mean_return_pct": 1.6614947409218097,
+    "mean_sharpe": 0.8283522171423465,
+    "mean_max_dd_pct": 2.0211188459154927,
+    "positive": 4,
+    "trades": 18
+   },
+   "previous_defaults": {
+    "mean_return_pct": 0.232930656906003,
+    "mean_sharpe": 0.0653624576068704,
+    "mean_max_dd_pct": 1.192967767769695,
+    "positive": 2,
+    "trades": 19
+   },
+   "buy_hold_mean_pct": -0.7105483791198701
+  },
+  {
+   "fit": "2024-01..2025-12",
+   "test": "2026-01..2026-06",
+   "chosen": {
+    "atr_sl_multiplier": 3.5,
+    "trailing_atr_multiplier": 5.0,
+    "risk_reward_ratio": 20.0,
+    "rsi_long_max": 100.0
+   },
+   "fit_mean_sharpe": 0.68018743148761,
+   "from_holdout": true,
+   "fixed": {
+    "mean_return_pct": -1.7815744556739332,
+    "mean_sharpe": -1.3765948227183464,
+    "mean_max_dd_pct": 2.937961086228637,
+    "positive": 1,
+    "trades": 22
+   },
+   "refit": {
+    "mean_return_pct": -1.7257995315767218,
+    "mean_sharpe": -1.4925562521134517,
+    "mean_max_dd_pct": 2.75759318539504,
+    "positive": 1,
+    "trades": 22
+   },
+   "previous_defaults": {
+    "mean_return_pct": -1.68303539826818,
+    "mean_sharpe": -2.6387279700821713,
+    "mean_max_dd_pct": 1.9195215235343421,
+    "positive": 0,
+    "trades": 19
+   },
+   "buy_hold_mean_pct": -40.419864538988335
+  },
+  {
+   "fit": "2024-07..2026-06",
+   "test": "2026-07..2026-09",
+   "chosen": {
+    "atr_sl_multiplier": 3.5,
+    "trailing_atr_multiplier": 5.0,
+    "risk_reward_ratio": 20.0,
+    "rsi_long_max": 100.0
+   },
+   "fit_mean_sharpe": 0.33153937714266035,
+   "from_holdout": true,
+   "fixed": {
+    "mean_return_pct": 0.8491838776241224,
+    "mean_sharpe": -0.6866413285813515,
+    "mean_max_dd_pct": 1.9178940735490932,
+    "positive": 2,
+    "trades": 13
+   },
+   "refit": {
+    "mean_return_pct": 1.1431615504400061,
+    "mean_sharpe": -0.711212069600582,
+    "mean_max_dd_pct": 2.228241250804995,
+    "positive": 2,
+    "trades": 13
+   },
+   "previous_defaults": {
+    "mean_return_pct": -0.76584871034866,
+    "mean_sharpe": -2.17685827772003,
+    "mean_max_dd_pct": 1.0740379410486425,
+    "positive": 1,
+    "trades": 11
+   },
+   "buy_hold_mean_pct": 49.48833764729834
+  }
+ ],
+ "variants": [
+  "fixed",
+  "refit",
+  "previous_defaults"
+ ],
+ "stitched": {
+  "fixed": {
+   "mean_return_pct": 10.734831669739025,
+   "mean_max_dd_pct": 7.871094377674519,
+   "worst_max_dd_pct": 11.636084088870675,
+   "mean_sharpe": 0.5352641057387619,
+   "positive": 4,
+   "pairs": {
+    "BNBUSDT": {
+     "return_pct": 1.3956399818443321,
+     "max_drawdown_pct": 11.636084088870675,
+     "sharpe": 0.09735348974853142
+    },
+    "BTCUSDT": {
+     "return_pct": 21.32181482145068,
+     "max_drawdown_pct": 5.112781829553092,
+     "sharpe": 1.0751013917962056
+    },
+    "ETHUSDT": {
+     "return_pct": 13.385840195681853,
+     "max_drawdown_pct": 6.248424649317894,
+     "sharpe": 0.7462683882048863
+    },
+    "SOLUSDT": {
+     "return_pct": 18.994109879360856,
+     "max_drawdown_pct": 6.718023954020246,
+     "sharpe": 0.8019928144006385
+    },
+    "XRPUSDT": {
+     "return_pct": -1.4232465296425967,
+     "max_drawdown_pct": 9.64015736661068,
+     "sharpe": -0.0443955554564516
+    }
+   }
+  },
+  "refit": {
+   "mean_return_pct": 6.527722226337788,
+   "mean_max_dd_pct": 6.688027449313923,
+   "worst_max_dd_pct": 9.860089893585142,
+   "mean_sharpe": 0.36038172036742183,
+   "positive": 3,
+   "pairs": {
+    "BNBUSDT": {
+     "return_pct": -2.3740325145681918,
+     "max_drawdown_pct": 9.860089893585142,
+     "sharpe": -0.1353978976009054
+    },
+    "BTCUSDT": {
+     "return_pct": 15.561924140214579,
+     "max_drawdown_pct": 4.534264651804909,
+     "sharpe": 0.9167691841257455
+    },
+    "ETHUSDT": {
+     "return_pct": 3.7773913846991025,
+     "max_drawdown_pct": 6.045080674714405,
+     "sharpe": 0.2925960563833951
+    },
+    "SOLUSDT": {
+     "return_pct": 18.78211230457174,
+     "max_drawdown_pct": 4.675399679209346,
+     "sharpe": 0.9202002389217144
+    },
+    "XRPUSDT": {
+     "return_pct": -3.108784183228286,
+     "max_drawdown_pct": 8.325302347255812,
+     "sharpe": -0.19225897999284053
+    }
+   }
+  },
+  "previous_defaults": {
+   "mean_return_pct": -6.673623021613207,
+   "mean_max_dd_pct": 7.1362087642624825,
+   "worst_max_dd_pct": 11.393276148933358,
+   "mean_sharpe": -0.840059629481949,
+   "positive": 0,
+   "pairs": {
+    "BNBUSDT": {
+     "return_pct": -10.854111239386743,
+     "max_drawdown_pct": 11.393276148933358,
+     "sharpe": -1.3179843654203727
+    },
+    "BTCUSDT": {
+     "return_pct": -1.9433990015853886,
+     "max_drawdown_pct": 3.426525807892416,
+     "sharpe": -0.2773109236152636
+    },
+    "ETHUSDT": {
+     "return_pct": -8.463481584740407,
+     "max_drawdown_pct": 8.550071866093038,
+     "sharpe": -1.2966056282893355
+    },
+    "SOLUSDT": {
+     "return_pct": -4.496835169557267,
+     "max_drawdown_pct": 4.544903451026076,
+     "sharpe": -0.4006096224968038
+    },
+    "XRPUSDT": {
+     "return_pct": -7.610288112796237,
+     "max_drawdown_pct": 7.766266547367522,
+     "sharpe": -0.90778760758797
+    }
+   }
+  }
+ },
+ "stitched_from_2024_07": {
+  "fixed": {
+   "mean_return_pct": 3.4016561966075898,
+   "mean_max_dd_pct": 6.302671689769644,
+   "worst_max_dd_pct": 9.640157366610657,
+   "mean_sharpe": 0.3387922589851307,
+   "positive": 4,
+   "pairs": {
+    "BNBUSDT": {
+     "return_pct": 0.16846039936806445,
+     "max_drawdown_pct": 7.533278737614586,
+     "sharpe": 0.039027016825964295
+    },
+    "BTCUSDT": {
+     "return_pct": 6.5524349820195615,
+     "max_drawdown_pct": 3.3171336206934847,
+     "sharpe": 0.6947025939242938
+    },
+    "ETHUSDT": {
+     "return_pct": -0.22236949943972295,
+     "max_drawdown_pct": 6.2484246493179105,
+     "sharpe": 0.007525435198467222
+    },
+    "SOLUSDT": {
+     "return_pct": 3.3533578845465373,
+     "max_drawdown_pct": 4.774364074611582,
+     "sharpe": 0.34642672689075543
+    },
+    "XRPUSDT": {
+     "return_pct": 7.156397216543509,
+     "max_drawdown_pct": 9.640157366610657,
+     "sharpe": 0.6062795220861728
+    }
+   }
+  },
+  "refit": {
+   "mean_return_pct": 0.8035884235084655,
+   "mean_max_dd_pct": 5.67702012407392,
+   "worst_max_dd_pct": 8.325302347255798,
+   "mean_sharpe": 0.07280883681403709,
+   "positive": 3,
+   "pairs": {
+    "BNBUSDT": {
+     "return_pct": -3.69907570852247,
+     "max_drawdown_pct": 6.9465604836339665,
+     "sharpe": -0.44065080985291016
+    },
+    "BTCUSDT": {
+     "return_pct": 2.0049155652839934,
+     "max_drawdown_pct": 3.6089875963589675,
+     "sharpe": 0.2551809756029032
+    },
+    "ETHUSDT": {
+     "return_pct": -2.303402874038074,
+     "max_drawdown_pct": 5.517288790721493,
+     "sharpe": -0.31553900407452007
+    },
+    "SOLUSDT": {
+     "return_pct": 5.707814131897049,
+     "max_drawdown_pct": 3.9869614023993694,
+     "sharpe": 0.5616974260155201
+    },
+    "XRPUSDT": {
+     "return_pct": 2.30769100292183,
+     "max_drawdown_pct": 8.325302347255798,
+     "sharpe": 0.3033555963791924
+    }
+   }
+  },
+  "previous_defaults": {
+   "mean_return_pct": -4.368757357055599,
+   "mean_max_dd_pct": 5.108429174976744,
+   "worst_max_dd_pct": 8.92519046146837,
+   "mean_sharpe": -0.9437475731898186,
+   "positive": 0,
+   "pairs": {
+    "BNBUSDT": {
+     "return_pct": -8.410309670320204,
+     "max_drawdown_pct": 8.92519046146837,
+     "sharpe": -1.794372771210825
+    },
+    "BTCUSDT": {
+     "return_pct": -1.6365481388829761,
+     "max_drawdown_pct": 2.849436008840228,
+     "sharpe": -0.39909707739340683
+    },
+    "ETHUSDT": {
+     "return_pct": -4.779954563240951,
+     "max_drawdown_pct": 4.935875309276335,
+     "sharpe": -1.2584336814129327
+    },
+    "SOLUSDT": {
+     "return_pct": -4.078689926425505,
+     "max_drawdown_pct": 4.1269686671317505,
+     "sharpe": -0.7398921772206954
+    },
+    "XRPUSDT": {
+     "return_pct": -2.93828448640836,
+     "max_drawdown_pct": 4.704675428167044,
+     "sharpe": -0.526942158711234
+    }
+   }
+  }
+ },
+ "latest_choice": {
+  "atr_sl_multiplier": 3.5,
+  "trailing_atr_multiplier": 5.0,
+  "risk_reward_ratio": 20.0,
+  "rsi_long_max": 100.0
+ }
+}
