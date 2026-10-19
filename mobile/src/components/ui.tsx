@@ -66,6 +66,20 @@ export function Button({
   );
 }
 
+export function Chip({ label, active, onPress, color }: { label: string; active: boolean; onPress: () => void; color?: string }) {
+  const tint = color ?? colors.accent;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={[styles.chip, { borderColor: active ? tint : colors.border }]}
+    >
+      <Text style={{ color: active ? tint : colors.muted, fontSize: 12 }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export function Empty({ text }: { text: string }) {
   return <Text style={styles.empty}>{text}</Text>;
 }
@@ -88,6 +102,8 @@ export const styles = StyleSheet.create({
   button: { borderRadius: 8, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center' },
   buttonText: { color: colors.text, fontWeight: '600' },
   empty: { color: colors.muted, textAlign: 'center', padding: 24 },
+  chip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   text: { color: colors.text },
   muted: { color: colors.muted, fontSize: 12 },
   input: {
