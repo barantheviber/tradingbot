@@ -295,6 +295,12 @@ eksik migration'ları sırayla, her biri kendi transaction'ında uygular. Yeni b
 eklemeli değişiklik yapın (ör. `add_column_if_missing(conn, "positions", "strategy", "TEXT DEFAULT 'x'")`).
 Yayınlanmış bir migration'ı asla değiştirmeyin. Mevcut şema versiyonu: **1**.
 
+## Ayrı araç: Microsoft Rewards botu
+
+`rewards_bot/` klasörü, trading botundan bağımsız bir araçtır: Microsoft Rewards puanlarını (Bing
+aramaları, günlük set, diğer görevler) her gün arka planda, görünmez bir tarayıcıyla toplar.
+Kurulum, kullanım ve riskler için bkz. [rewards_bot/README.md](rewards_bot/README.md).
+
 ---
 
 > ⚠️ **Bu bot kâr garantisi vermez, yatırım tavsiyesi değildir.** Geçmiş performans (backtest dahil)

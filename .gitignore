@@ -14,3 +14,7 @@ logs/
 # PyInstaller output (packaging/)
 /build/
 /dist/
+
+# Rewards bot (rewards_bot/)
+.venv-rewards/
+rewards_bot/config.json
