@@ -1,18 +1,22 @@
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, Text, View } from 'react-native';
 
 import { api } from '../../api/client';
-import type { Candle, Pnl } from '../../api/types';
+import type { Candle, Pnl, Trade } from '../../api/types';
 import { BotControl } from '../../components/BotControl';
 import { CandleChart } from '../../components/CandleChart';
+import { PnlCurve } from '../../components/PnlCurve';
 import { SafetyHaltCard } from '../../components/SafetyHaltCard';
 import { UpdateCard } from '../../components/UpdateCard';
 import { WelcomeCard } from '../../components/WelcomeCard';
-import { Banner, Card, Stat, styles } from '../../components/ui';
+import { Banner, Card, Chip, Stat, styles } from '../../components/ui';
 import { useConnection, useRequiredConnection } from '../../lib/connection';
 import { age, num, pct, signed } from '../../lib/format';
 import { useLive } from '../../lib/live';
 import { colors, pnlColor } from '../../lib/theme';
+
+const CHART_CANDLES = 120;
 
 export default function OverviewScreen() {
   const connection = useRequiredConnection();
@@ -22,25 +26,53 @@ export default function OverviewScreen() {
   const [symbol, setSymbol] = useState<string | null>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [chartError, setChartError] = useState<string | null>(null);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [periods, setPeriods] = useState<{ ema: number; donchian: number }>({ ema: 200, donchian: 20 });
   const [refreshing, setRefreshing] = useState(false);
 
   const activeSymbol = symbol ?? status?.symbols[0] ?? null;
 
   const loadPnl = useCallback(() => api.pnl(connection).then(setPnl).catch(() => undefined), [connection]);
+  const loadTrades = useCallback(
+    () => api.trades(connection, 1000).then(setTrades).catch(() => undefined),
+    [connection],
+  );
+  // The chart draws the same EMA / Donchian periods the bot trades with; they are live settings.
+  const loadPeriods = useCallback(async () => {
+    try {
+      const settings = await api.settings(connection);
+      const value = (key: string, fallback: number) => {
+        const v = Number(settings.find((s) => s.key === key)?.value);
+        return Number.isFinite(v) && v > 0 ? Math.round(v) : fallback;
+      };
+      setPeriods({ ema: value('ema_trend_period', 200), donchian: value('donchian_period', 20) });
+    } catch {
+      // keep the defaults
+    }
+  }, [connection]);
   const loadCandles = useCallback(async () => {
     if (!activeSymbol) return;
     try {
-      setCandles(await api.candles(connection, activeSymbol, status?.timeframe, 120));
+      // extra candles in front so the EMA has warmed up by the first candle shown
+      const limit = Math.min(1000, CHART_CANDLES + periods.ema);
+      setCandles(await api.candles(connection, activeSymbol, status?.timeframe, limit));
       setChartError(null);
     } catch (e) {
       setChartError(e instanceof Error ? e.message : String(e));
     }
-  }, [connection, activeSymbol, status?.timeframe]);
+  }, [connection, activeSymbol, status?.timeframe, periods.ema]);
 
-  // PnL changes when a position closes; re-read it whenever the open count changes.
+  useFocusEffect(
+    useCallback(() => {
+      loadPeriods();
+    }, [loadPeriods]),
+  );
+
+  // PnL and the trade list change when a position closes; re-read them whenever the open count changes.
   useEffect(() => {
     loadPnl();
-  }, [loadPnl, status?.open_positions]);
+    loadTrades();
+  }, [loadPnl, loadTrades, status?.open_positions]);
 
   useEffect(() => {
     loadCandles();
@@ -50,7 +82,7 @@ export default function OverviewScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refresh(), loadPnl(), loadCandles()]);
+    await Promise.all([refresh(), loadPnl(), loadTrades(), loadPeriods(), loadCandles()]);
     setRefreshing(false);
   };
 
@@ -102,25 +134,26 @@ export default function OverviewScreen() {
       </Card>
 
       <Card title="Grafik">
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        <View style={[styles.chipRow, { marginBottom: 8 }]}>
           {(status?.symbols ?? []).map((s) => (
-            <Pressable
-              key={s}
-              onPress={() => setSymbol(s)}
-              style={{
-                paddingHorizontal: 10,
-                paddingVertical: 4,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: s === activeSymbol ? colors.accent : colors.border,
-              }}
-            >
-              <Text style={{ color: s === activeSymbol ? colors.accent : colors.muted, fontSize: 12 }}>{s}</Text>
-            </Pressable>
+            <Chip key={s} label={s} active={s === activeSymbol} onPress={() => setSymbol(s)} />
           ))}
         </View>
         {chartError ? <Text style={styles.muted}>{chartError}</Text> : null}
-        <CandleChart candles={candles} positions={positions.filter((p) => p.symbol === activeSymbol)} />
+        <CandleChart
+          candles={candles}
+          visible={CHART_CANDLES}
+          positions={positions.filter((p) => p.symbol === activeSymbol)}
+          trades={trades}
+          symbol={activeSymbol}
+          timeframe={status?.timeframe}
+          emaPeriod={periods.ema}
+          donchianPeriod={periods.donchian}
+        />
+      </Card>
+
+      <Card title="PnL eğrisi">
+        <PnlCurve trades={trades} unrealized={pnl?.unrealized_pnl} startingEquity={pnl?.starting_equity} />
       </Card>
 
       <Card title="PnL özeti">
@@ -134,6 +167,15 @@ export default function OverviewScreen() {
             value={pnl ? (pnl.profit_factor_infinite ? '∞' : num(pnl.profit_factor)) : '-'}
           />
           <Stat label="Maks. drawdown" value={num(pnl?.max_drawdown)} hint={pct(pnl?.max_drawdown_pct)} />
+          <Stat label="Ort. kazanç" value={num(pnl?.avg_win)} color={pnl?.trades ? colors.up : undefined} />
+          <Stat label="Ort. kayıp" value={num(pnl?.avg_loss)} color={pnl?.trades ? colors.down : undefined} />
+          <Stat
+            label="Beklenti / işlem"
+            value={signed(pnl?.expectancy)}
+            color={pnlColor(pnl?.expectancy)}
+            hint="ortalama PnL"
+          />
+          <Stat label="Ödenen komisyon" value={num(pnl?.fees)} />
         </View>
       </Card>
     </ScrollView>
