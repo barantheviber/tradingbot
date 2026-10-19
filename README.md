@@ -50,7 +50,7 @@ diğeri bilmez. Bu yüzden:
 - *Telefon ya da bilgisayar yeniden başlarsa?* Telefonda bot çalışıyorduysa telefon açılınca kendiliğinden
   devam eder. Bilgisayarda kurulumdaki **Bilgisayar açılınca uygulamayı başlat** seçiliyse uygulama açılır ve
   bot kaldığı yerden devam eder. **Durdur** ile durdurduğunuz bot kendiliğinden başlamaz.
-- *Güncelleme nasıl yapılır?* Yeni sürümü Releases sayfasından indirip kurun. Ayarlarınız ve geçmişiniz korunur. Telefonda çalışan bot güncellemeden sonra kendiliğinden devam eder.
+- *Güncelleme nasıl yapılır?* Yeni sürüm çıkınca uygulamanın ana ekranında "Yeni sürüm var" yazar. Uygulama bunun için günde en fazla bir kez GitHub'daki son sürüme bakar; kendisi hiçbir şey indirmez ya da kurmaz. "İndirme sayfasını aç" ile yeni dosyayı indirip eskisinin üstüne kurun. Ayarlarınız ve geçmişiniz korunur. Telefonda çalışan bot güncellemeden sonra kendiliğinden devam eder.
 
 ## Mimari
 
@@ -294,6 +294,12 @@ eksik migration'ları sırayla, her biri kendi transaction'ında uygular. Yeni b
 `state_manager.py` içindeki `MIGRATIONS` listesine yeni bir `(versiyon, fonksiyon)` ekleyin ve yalnızca
 eklemeli değişiklik yapın (ör. `add_column_if_missing(conn, "positions", "strategy", "TEXT DEFAULT 'x'")`).
 Yayınlanmış bir migration'ı asla değiştirmeyin. Mevcut şema versiyonu: **1**.
+
+## Ayrı araç: Microsoft Rewards botu
+
+`rewards_bot/` klasörü, trading botundan bağımsız bir araçtır: Microsoft Rewards puanlarını (Bing
+aramaları, günlük set, diğer görevler) her gün arka planda, görünmez bir tarayıcıyla toplar.
+Kurulum, kullanım ve riskler için bkz. [rewards_bot/README.md](rewards_bot/README.md).
 
 ---
 

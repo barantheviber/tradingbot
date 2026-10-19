@@ -1,6 +1,6 @@
 {
   "name": "tradingbot-desktop",
-  "version": "0.1.0",
+  "version": "0.0.0-dev",
   "private": true,
   "description": "Trading bot için masaüstü izleme uygulaması (Electron + React). Botun HTTP API'sine bağlanır.",
   "main": "dist-electron/electron/main.js",

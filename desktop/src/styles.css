@@ -105,3 +105,6 @@ button.danger:hover:not(:disabled) { background: #4a1f1f; }
 .halt-banner { display: flex; align-items: center; gap: 12px; margin: 8px 16px 0; padding: 10px 14px;
   border: 1px solid var(--neg); border-radius: 8px; background: rgba(239, 83, 80, .08); }
 .halt-banner b { color: var(--neg); }
+.update-banner { display: flex; align-items: center; gap: 10px; margin: 8px 16px 0; padding: 10px 14px;
+  border: 1px solid var(--accent); border-radius: 8px; background: rgba(91, 141, 239, .08); }
+.update-banner b { color: var(--accent); }
