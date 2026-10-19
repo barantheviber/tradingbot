@@ -1,3 +1,0 @@
-# Rewards bot only (python -m rewards_bot). Uses the installed Microsoft Edge by default,
-# so no browser download is needed on Windows.
-playwright>=1.45

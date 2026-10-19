@@ -297,9 +297,7 @@ Yayınlanmış bir migration'ı asla değiştirmeyin. Mevcut şema versiyonu: **
 
 ## Ayrı araç: Microsoft Rewards botu
 
-`rewards_bot/` klasörü, trading botundan bağımsız bir araçtır: Microsoft Rewards puanlarını (Bing
-aramaları, günlük set, diğer görevler) her gün arka planda, görünmez bir tarayıcıyla toplar.
-Kurulum, kullanım ve riskler için bkz. [rewards_bot/README.md](rewards_bot/README.md).
+Microsoft Rewards botu artık kendi deposunda: [barantheviber/rewards-bot](https://github.com/barantheviber/rewards-bot).
 
 ---
 
